@@ -137,6 +137,15 @@ impl CpuController {
         }
     }
 
+    /// Configures the CPU BVT
+    pub fn set_bvt_warp_ns(&self, bvt: i32) -> Result<()> {
+        let file = "cpu.bvt_warp_ns";
+        self.open_path(file, true).and_then(|mut file| {
+            file.write_all(bvt.to_string().as_ref())
+                .map_err(|e| Error::with_cause(WriteFailed, e))
+        })
+    }
+
     /// Configures the CPU bandwidth (in relative relation to other control groups and this control
     /// group's parent).
     ///
