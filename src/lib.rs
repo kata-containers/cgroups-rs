@@ -52,6 +52,8 @@ pub mod perf_event;
 pub mod pid;
 pub mod rdma;
 pub mod systemd;
+pub mod process_ext;
+
 
 use crate::blkio::BlkIoController;
 use crate::cpu::CpuController;

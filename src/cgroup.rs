@@ -307,6 +307,10 @@ impl Cgroup {
         v.dedup();
         v
     }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
 }
 
 pub const UNIFIED_MOUNTPOINT: &str = "/sys/fs/cgroup";
