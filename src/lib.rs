@@ -33,6 +33,8 @@ macro_rules! update {
     };
 }
 
+#[cfg(feature = "async_events")]
+pub mod async_events;
 pub mod blkio;
 pub mod cgroup;
 pub mod cgroup_builder;

@@ -6,11 +6,11 @@ all: debug fmt test
 
 .PHONY: debug
 debug:
-	RUSTFLAGS="--deny warnings" cargo build
+	RUSTFLAGS="--deny warnings" cargo build --all-features
 
 .PHONY: release
 release:
-	cargo build --release
+	cargo build --release --all-features
 
 .PHONY: build
 build: debug
@@ -21,7 +21,7 @@ build: debug
 
 .PHONY: test
 test:
-	cargo test -- --color always --nocapture
+	cargo test --all-features -- --color always --nocapture
 
 .PHONY: check
 check: fmt clippy
