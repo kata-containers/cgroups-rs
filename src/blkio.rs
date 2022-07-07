@@ -378,6 +378,10 @@ impl ControllerInternal for BlkIoController {
             let _ = self.throttle_write_iops_for_device(dev.major, dev.minor, dev.rate);
         }
 
+        for dev in &res.cost_weight {
+            let _ = self.set_cost_weight(dev.major, dev.minor, dev.rate, dev.is_default);
+        }
+
         Ok(())
     }
 }
@@ -736,6 +740,33 @@ impl BlkIoController {
             file = "io.max";
             content = format!("{}:{} wiops={}", major, minor, iops);
         }
+        self.open_path(file, true).and_then(|mut file| {
+            file.write_all(content.as_ref())
+                .map_err(|e| Error::with_cause(WriteFailed, e))
+        })
+    }
+
+    /// Set the cost weight of the control group's tasks.
+    /// Refer to https://lwn.net/Articles/792256/ for more details of the io.weight I/O-bandwidth controller.
+    pub fn set_cost_weight(
+        &self,
+        major: u64,
+        minor: u64,
+        iops: u64,
+        is_default: bool,
+    ) -> Result<()> {
+        let file = if self.v2 {
+            "io.cost.weight"
+        } else {
+            "blkio.cost.weight"
+        };
+
+        let content = if is_default {
+            format!("{}", iops)
+        } else {
+            format!("{}:{} {}", major, minor, iops)
+        };
+
         self.open_path(file, true).and_then(|mut file| {
             file.write_all(content.as_ref())
                 .map_err(|e| Error::with_cause(WriteFailed, e))

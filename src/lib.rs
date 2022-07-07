@@ -595,6 +595,20 @@ pub struct BlkIoDeviceThrottleResource {
     pub rate: u64,
 }
 
+/// Provides the ability to throttle a device (both byte/sec, and IO op/s)
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BlkIoCostWeight {
+    /// The major number of the device.
+    pub major: u64,
+    /// The minor number of the device.
+    pub minor: u64,
+    /// The rate.
+    pub rate: u64,
+    /// If the rate is default for all device.
+    pub is_default: bool,
+}
+
 /// General block I/O resource limits.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -613,6 +627,8 @@ pub struct BlkIoResources {
     pub throttle_write_bps_device: Vec<BlkIoDeviceThrottleResource>,
     /// Throttled write IO operations per second can be provided for each device.
     pub throttle_write_iops_device: Vec<BlkIoDeviceThrottleResource>,
+    /// The cost weight of each device/default.
+    pub cost_weight: Vec<BlkIoCostWeight>,
 }
 
 /// The resource limits and constraints that will be set on the control group.
