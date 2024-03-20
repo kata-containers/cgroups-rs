@@ -521,7 +521,7 @@ fn supported_controllers() -> Vec<String> {
     let ret = fs::read_to_string(p.as_str());
     ret.unwrap_or_default()
         .split(' ')
-        .map(|x| x.to_string())
+        .map(|x| x.trim().to_string())
         .collect::<Vec<String>>()
 }
 
