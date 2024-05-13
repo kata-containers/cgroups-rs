@@ -574,17 +574,27 @@ impl MemController {
     // for v2
     pub fn get_mem(&self) -> Result<SetMemory> {
         let mut m: SetMemory = Default::default();
-        self.get_max_value("memory.high")
-            .map(|x| m.high = Some(x))?;
-        self.get_max_value("memory.low").map(|x| m.low = Some(x))?;
-        self.get_max_value("memory.max").map(|x| m.max = Some(x))?;
-        self.get_max_value("memory.min").map(|x| m.min = Some(x))?;
+        m.high = self.get_max_value("memory.high")
+            .map_or(Some(MaxValue::default()), |x| Some(x));
+        m.low = self.get_max_value("memory.low")
+            .map_or(Some(MaxValue::default()), |x| Some(x));
+        m.max = self.get_max_value("memory.max")
+            .map_or(Some(MaxValue::default()), |x| Some(x));
+        m.min = self.get_max_value("memory.min")
+            .map_or(Some(MaxValue::default()), |x| Some(x));
 
         Ok(m)
     }
 
     fn memory_stat_v2(&self) -> Memory {
-        let set = self.get_mem().unwrap();
+        // NOTE: get_mem() always returns T, but let's
+        // still do `unwrap_or` for safety.
+        let set = self.get_mem().unwrap_or(SetMemory {
+            low: Some(MaxValue::default()),
+            high: Some(MaxValue::default()),
+            max: Some(MaxValue::default()),
+            min: Some(MaxValue::default()),
+        });
 
         Memory {
             fail_cnt: 0,
