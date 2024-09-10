@@ -574,12 +574,18 @@ impl MemController {
     // for v2
     pub fn get_mem(&self) -> Result<SetMemory> {
         let mut m: SetMemory = Default::default();
-        self.get_max_value("memory.high")
-            .map(|x| m.high = Some(x))?;
-        self.get_max_value("memory.low").map(|x| m.low = Some(x))?;
-        self.get_max_value("memory.max").map(|x| m.max = Some(x))?;
-        self.get_max_value("memory.min").map(|x| m.min = Some(x))?;
-
+        m.high = self
+            .get_max_value("memory.high")
+            .map_or(Some(MaxValue::Value(0)), |x| Some(x));
+        m.low = self
+            .get_max_value("memory.low")
+            .map_or(Some(MaxValue::Value(0)), |x| Some(x));
+        m.max = self
+            .get_max_value("memory.max")
+            .map_or(Some(MaxValue::Value(0)), |x| Some(x));
+        m.min = self
+            .get_max_value("memory.min")
+            .map_or(Some(MaxValue::Value(0)), |x| Some(x));
         Ok(m)
     }
 
@@ -730,7 +736,7 @@ impl MemController {
                 .open_path("memory.swap.events", false)
                 .and_then(flat_keyed_to_hashmap)
                 .map(|x| *x.get("fail").unwrap_or(&0) as u64)
-                .unwrap(),
+                .unwrap_or(0),
             limit_in_bytes: self
                 .open_path("memory.swap.max", false)
                 .and_then(read_i64_from)
