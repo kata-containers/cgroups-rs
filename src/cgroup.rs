@@ -82,7 +82,29 @@ impl Cgroup {
     /// Create this control group.
     pub fn create(&self) -> Result<()> {
         if self.hier.v2() {
-            create_v2_cgroup(self.hier.root(), &self.path, &self.specified_controllers)
+            create_v2_cgroup(
+                self.hier.root(),
+                &self.path,
+                &self.specified_controllers,
+                true,
+            )
+        } else {
+            for subsystem in &self.subsystems {
+                subsystem.to_controller().create();
+            }
+            Ok(())
+        }
+    }
+
+    /// Create this control group, don't enable subtree
+    pub fn create_disabled(&self) -> Result<()> {
+        if self.hier.v2() {
+            create_v2_cgroup(
+                self.hier.root(),
+                &self.path,
+                &self.specified_controllers,
+                false,
+            )
         } else {
             for subsystem in &self.subsystems {
                 subsystem.to_controller().create();
@@ -208,12 +230,10 @@ impl Cgroup {
                         p.push(path);
                     }
                     x.enter(p.as_ref())
+                } else if path.as_os_str() != "" {
+                    x.enter(path)
                 } else {
-                    if path.as_os_str() != "" {
-                        x.enter(path)
-                    } else {
-                        x
-                    }
+                    x
                 }
             })
             .collect::<Vec<_>>();
@@ -537,6 +557,7 @@ fn create_v2_cgroup(
     root: PathBuf,
     path: &str,
     specified_controllers: &Option<Vec<String>>,
+    enabled: bool,
 ) -> Result<()> {
     // controler list ["memory", "cpu"]
     let controllers = if let Some(s_controllers) = specified_controllers.clone() {
@@ -552,7 +573,9 @@ fn create_v2_cgroup(
     let mut fp = root;
 
     // enable for root
-    enable_controllers(&controllers, &fp);
+    if enabled {
+        enable_controllers(&controllers, &fp);
+    }
 
     // path: "a/b/c"
     let elements = path.split('/').collect::<Vec<&str>>();
@@ -567,7 +590,7 @@ fn create_v2_cgroup(
             }
         }
 
-        if i < last_index {
+        if enabled && i < last_index {
             // enable controllers for substree
             enable_controllers(&controllers, &fp);
         }
