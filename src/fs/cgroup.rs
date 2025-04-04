@@ -127,7 +127,7 @@ impl Cgroup {
         path: P,
         relative_paths: HashMap<String, String>,
     ) -> Result<Cgroup> {
-        let cg = Cgroup::load_with_relative_paths(hier, path, relative_paths);
+        let cg = Cgroup::load_with_relative_paths(hier, path, &relative_paths);
         cg.create()?;
         Ok(cg)
     }
@@ -185,38 +185,45 @@ impl Cgroup {
     ///
     /// Returns a handle to the control group (that possibly does not exist until `create()` has
     /// been called on the cgroup.
-    ///
-    /// Note that this method is only meaningful for cgroup v1, call it is equivalent to call `load` in the v2 mode
     pub fn load_with_relative_paths<P: AsRef<Path>>(
         hier: Box<dyn Hierarchy>,
         path: P,
-        relative_paths: HashMap<String, String>,
+        relative_paths: &HashMap<String, String>,
     ) -> Cgroup {
-        // relative_paths only valid for cgroup v1
-        if hier.v2() {
-            return Self::load(hier, path);
-        }
-
         let path = path.as_ref();
         let mut subsystems = hier.subsystems();
-        if path.as_os_str() != "" {
-            subsystems = subsystems
-                .into_iter()
-                .map(|x| {
-                    let cn = x.controller_name();
-                    if relative_paths.contains_key(&cn) {
-                        let rp = relative_paths.get(&cn).unwrap();
-                        let valid_path = rp.trim_start_matches('/').to_string();
-                        let mut p = PathBuf::from(valid_path);
+        subsystems = subsystems
+            .into_iter()
+            .map(|x| {
+                let cn = if hier.v2() {
+                    "".to_string()
+                } else {
+                    x.controller_name()
+                };
+                if relative_paths.contains_key(&cn) {
+                    let rp = relative_paths.get(&cn).unwrap();
+                    let valid_path = rp.trim_start_matches('/').to_string();
+                    let mut p = PathBuf::from(valid_path);
+                    if path.as_os_str() != "" {
                         p.push(path);
-                        x.enter(p.as_ref())
-                    } else {
-                        x.enter(path)
                     }
-                })
-                .collect::<Vec<_>>();
-        }
+                    x.enter(p.as_ref())
+                } else {
+                    if path.as_os_str() != "" {
+                        x.enter(path)
+                    } else {
+                        x
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
 
+        let rp = relative_paths.get("").unwrap();
+        let valid_path = rp.trim_start_matches('/').to_string();
+        let mut pb = PathBuf::from(valid_path);
+        pb.push(path);
+
+        let path = if hier.v2() { pb.as_path() } else { path };
         Cgroup {
             subsystems,
             hier,
