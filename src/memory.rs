@@ -745,7 +745,7 @@ impl MemController {
                 .open_path("memory.swap.events", false)
                 .and_then(flat_keyed_to_hashmap)
                 .map(|x| *x.get("fail").unwrap_or(&0) as u64)
-                .unwrap(),
+                .unwrap_or(0),
             limit_in_bytes: self
                 .open_path("memory.swap.max", false)
                 .and_then(read_i64_from)
