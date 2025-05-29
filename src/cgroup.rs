@@ -620,15 +620,16 @@ fn get_cgroups_relative_paths_by_path(path: String) -> Result<HashMap<String, St
     let mut m = HashMap::new();
     let content =
         fs::read_to_string(path.clone()).map_err(|e| Error::with_cause(ReadFailed(path), e))?;
-    for l in content.lines() {
-        let fl: Vec<&str> = l.split(':').collect();
-        if fl.len() != 3 {
-            continue;
-        }
-
-        let keys: Vec<&str> = fl[1].split(',').collect();
-        for key in &keys {
-            m.insert(key.to_string(), fl[2].to_string());
+    // cgroup path may have ":" , likes
+    // "2:cpu,cpuacct:/system.slice/containerd.service/test.slice:cri-containerd:96b37a2edf84351487f42039e137427f1812f678850675fac214caf597ee5e4a"
+    for line in content.lines() {
+        if let Some((first_value_part, remaining_path)) =
+            line.split_once(':').unwrap_or_default().1.split_once(':')
+        {
+            let keys: Vec<&str> = first_value_part.split(',').collect();
+            keys.iter().for_each(|key| {
+                m.insert(key.to_string(), remaining_path.to_string());
+            });
         }
     }
     Ok(m)
