@@ -231,6 +231,7 @@ mod sealed {
             })
         }
 
+        #[allow(dead_code)]
         fn get(&self, key: &str) -> Result<String> {
             self.open_path(key, false).and_then(|mut file: File| {
                 let mut string = String::new();
