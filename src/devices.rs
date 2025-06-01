@@ -297,7 +297,7 @@ impl DevicesController {
             match res {
                 Ok(_) => {
                     s.lines().fold(Ok(Vec::new()), |acc, line| {
-                        let ls = line.to_string().split(|c| c == ' ' || c == ':').map(|x| x.to_string()).collect::<Vec<String>>();
+                        let ls = line.split(|c| c == ' ' || c == ':').map(|x| x.to_string()).collect::<Vec<String>>();
                         if acc.is_err() || ls.len() != 4 {
                             error!("allowed_devices: acc: {:?}, ls: {:?}", acc, ls);
                             Err(Error::new(ParseError))

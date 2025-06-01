@@ -81,6 +81,11 @@ impl RdmaController {
             .and_then(read_string_from)
     }
 
+    /// Returns the max usage of RDMA/IB specific resources.
+    pub fn max(&self) -> Result<String> {
+        self.open_path("rdma.max", false).and_then(read_string_from)
+    }
+
     /// Set a maximum usage for each RDMA/IB resource.
     pub fn set_max(&self, max: &str) -> Result<()> {
         self.open_path("rdma.max", true).and_then(|mut file| {

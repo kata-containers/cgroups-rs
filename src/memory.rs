@@ -573,18 +573,33 @@ impl MemController {
 
     // for v2
     pub fn get_mem(&self) -> Result<SetMemory> {
-        let mut m: SetMemory = Default::default();
-        self.get_max_value("memory.high")
-            .map(|x| m.high = Some(x))?;
-        self.get_max_value("memory.low").map(|x| m.low = Some(x))?;
-        self.get_max_value("memory.max").map(|x| m.max = Some(x))?;
-        self.get_max_value("memory.min").map(|x| m.min = Some(x))?;
+        let m = SetMemory {
+            high: self
+                .get_max_value("memory.high")
+                .map_or(Some(MaxValue::default()), Some),
+            low: self
+                .get_max_value("memory.low")
+                .map_or(Some(MaxValue::Value(0)), Some),
+            max: self
+                .get_max_value("memory.max")
+                .map_or(Some(MaxValue::default()), Some),
+            min: self
+                .get_max_value("memory.min")
+                .map_or(Some(MaxValue::Value(0)), Some),
+        };
 
         Ok(m)
     }
 
     fn memory_stat_v2(&self) -> Memory {
-        let set = self.get_mem().unwrap();
+        // NOTE: get_mem() always returns T, but let's
+        // still do `unwrap_or` for safety.
+        let set = self.get_mem().unwrap_or(SetMemory {
+            low: Some(MaxValue::Value(0)),
+            high: Some(MaxValue::default()),
+            max: Some(MaxValue::default()),
+            min: Some(MaxValue::Value(0)),
+        });
 
         Memory {
             fail_cnt: 0,
@@ -730,7 +745,7 @@ impl MemController {
                 .open_path("memory.swap.events", false)
                 .and_then(flat_keyed_to_hashmap)
                 .map(|x| *x.get("fail").unwrap_or(&0) as u64)
-                .unwrap(),
+                .unwrap_or(0),
             limit_in_bytes: self
                 .open_path("memory.swap.max", false)
                 .and_then(read_i64_from)
