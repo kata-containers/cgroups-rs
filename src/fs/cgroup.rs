@@ -6,11 +6,11 @@
 
 //! This module handles cgroup operations. Start here!
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::hierarchies::V1;
-use crate::{CgroupPid, ControllIdentifier, Controller, Hierarchy, Resources, Subsystem};
+use crate::fs::hierarchies::V1;
+use crate::fs::{CgroupPid, ControllIdentifier, Controller, Hierarchy, Resources, Subsystem};
 
 use std::collections::HashMap;
 use std::convert::From;
@@ -51,7 +51,7 @@ impl Clone for Cgroup {
     fn clone(&self) -> Self {
         Cgroup {
             subsystems: self.subsystems.clone(),
-            hier: crate::hierarchies::auto(),
+            hier: crate::fs::hierarchies::auto(),
             path: self.path.clone(),
             specified_controllers: None,
         }
@@ -62,7 +62,7 @@ impl Default for Cgroup {
     fn default() -> Self {
         Cgroup {
             subsystems: Vec::new(),
-            hier: crate::hierarchies::auto(),
+            hier: crate::fs::hierarchies::auto(),
             path: "".to_string(),
             specified_controllers: None,
         }

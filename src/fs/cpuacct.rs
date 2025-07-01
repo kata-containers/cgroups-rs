@@ -10,11 +10,11 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::{read_string_from, read_u64_from};
-use crate::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
+use crate::fs::{read_string_from, read_u64_from};
+use crate::fs::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
 
 /// A controller that allows controlling the `cpuacct` subsystem of a Cgroup.
 ///

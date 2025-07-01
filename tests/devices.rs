@@ -6,17 +6,17 @@
 
 //! Integration tests about the devices subsystem
 
-use cgroups_rs::devices::{DevicePermissions, DeviceType, DevicesController};
-use cgroups_rs::{Cgroup, DeviceResource};
+use cgroups_rs::fs::devices::{DevicePermissions, DeviceType, DevicesController};
+use cgroups_rs::fs::{Cgroup, DeviceResource};
 
 #[test]
 fn test_devices_parsing() {
     // now only v2
-    if cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
 
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_devices_parsing")).unwrap();
     {
         let devices: &DevicesController = cg.controller_of().unwrap();

@@ -11,23 +11,23 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use crate::blkio::BlkIoController;
-use crate::cpu::CpuController;
-use crate::cpuacct::CpuAcctController;
-use crate::cpuset::CpuSetController;
-use crate::devices::DevicesController;
-use crate::freezer::FreezerController;
-use crate::hugetlb::HugeTlbController;
-use crate::memory::MemController;
-use crate::net_cls::NetClsController;
-use crate::net_prio::NetPrioController;
-use crate::perf_event::PerfEventController;
-use crate::pid::PidController;
-use crate::rdma::RdmaController;
-use crate::systemd::SystemdController;
-use crate::{Controllers, Hierarchy, Subsystem};
+use crate::fs::blkio::BlkIoController;
+use crate::fs::cpu::CpuController;
+use crate::fs::cpuacct::CpuAcctController;
+use crate::fs::cpuset::CpuSetController;
+use crate::fs::devices::DevicesController;
+use crate::fs::freezer::FreezerController;
+use crate::fs::hugetlb::HugeTlbController;
+use crate::fs::memory::MemController;
+use crate::fs::net_cls::NetClsController;
+use crate::fs::net_prio::NetPrioController;
+use crate::fs::perf_event::PerfEventController;
+use crate::fs::pid::PidController;
+use crate::fs::rdma::RdmaController;
+use crate::fs::systemd::SystemdController;
+use crate::fs::{Controllers, Hierarchy, Subsystem};
 
-use crate::cgroup::Cgroup;
+use crate::fs::cgroup::Cgroup;
 
 /// Process mounts information.
 ///
