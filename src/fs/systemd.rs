@@ -7,9 +7,9 @@
 //!
 use std::path::PathBuf;
 
-use crate::error::*;
+use crate::fs::error::*;
 
-use crate::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
+use crate::fs::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
 
 /// A controller that allows controlling the `systemd` subsystem of a Cgroup.
 ///

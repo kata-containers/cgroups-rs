@@ -12,8 +12,8 @@ use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
 // notify_on_oom returns channel on which you can expect event about OOM,
 // if process died without OOM this channel will be closed.

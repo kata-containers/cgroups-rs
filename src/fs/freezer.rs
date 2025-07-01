@@ -11,10 +11,10 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
+use crate::fs::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
 
 /// A controller that allows controlling the `freezer` subsystem of a Cgroup.
 ///

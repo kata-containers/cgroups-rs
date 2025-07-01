@@ -13,11 +13,11 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
-use crate::{parse_max_value, read_i64_from, read_u64_from};
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
+use crate::fs::{parse_max_value, read_i64_from, read_u64_from};
 
-use crate::{
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, CpuResources, CustomizedAttribute,
     MaxValue, Resources, Subsystem,
 };
