@@ -11,6 +11,7 @@ pub mod manager;
 pub use manager::{FsManager, Manager};
 pub mod stats;
 pub use stats::CgroupStats;
+pub mod systemd;
 
 /// The maximum value for CPU shares in cgroups v1
 pub const CPU_SHARES_V1_MAX: u64 = 262144;
