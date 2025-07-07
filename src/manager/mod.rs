@@ -9,11 +9,20 @@ use std::collections::HashMap;
 pub use error::{Error, Result};
 mod fs;
 pub use fs::FsManager;
+mod systemd;
+pub use systemd::SystemdManager;
 mod conv;
 
 use oci_spec::runtime::LinuxResources;
 
+use crate::systemd::SLICE_SUFFIX;
 use crate::{CgroupPid, CgroupStats, FreezerState};
+
+/// Check if the cgroups path is a systemd cgroup.
+pub fn is_systemd_cgroup(cgroups_path: &str) -> bool {
+    let parts: Vec<&str> = cgroups_path.split(':').collect();
+    parts.len() == 3 && parts[0].ends_with(SLICE_SUFFIX)
+}
 
 /// Manage cgroups designed for OCI containers.
 pub trait Manager: Send + Sync {
