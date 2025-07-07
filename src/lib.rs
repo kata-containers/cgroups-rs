@@ -8,7 +8,7 @@ pub mod fs;
 #[cfg(feature = "oci")]
 pub mod manager;
 #[cfg(feature = "oci")]
-pub use manager::{FsManager, Manager};
+pub use manager::{FsManager, Manager, SystemdManager};
 pub mod stats;
 pub use stats::CgroupStats;
 pub mod systemd;

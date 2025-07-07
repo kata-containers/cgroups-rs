@@ -4,6 +4,8 @@
 //
 
 use crate::fs::error::Error as CgroupfsError;
+use crate::systemd::dbus::error::Error as SystemdDbusError;
+use crate::systemd::error::Error as SystemdCgroupError;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -17,4 +19,10 @@ pub enum Error {
 
     #[error("cgroupfs error: {0}")]
     Cgroupfs(#[from] CgroupfsError),
+
+    #[error("systemd cgroup error: {0}")]
+    SystemdCgroup(#[from] SystemdCgroupError),
+
+    #[error("systemd dbus error: {0}")]
+    SystemdDbus(#[from] SystemdDbusError),
 }
