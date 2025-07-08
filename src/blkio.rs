@@ -181,13 +181,14 @@ fn parse_io_stat(s: String) -> Vec<IoStat> {
 
 fn parse_io_service_total(s: String) -> Result<u64> {
     s.lines()
-        .filter(|x| x.split_whitespace().count() == 2)
-        .fold(Err(Error::new(ParseError)), |_, x| {
-            match x.split_whitespace().collect::<Vec<_>>().as_slice() {
-                ["Total", val] => val.parse::<u64>().map_err(|_| Error::new(ParseError)),
-                _ => Err(Error::new(ParseError)),
+        .find_map(|line| {
+            let mut parts = line.split_whitespace();
+            match (parts.next(), parts.next(), parts.next()) {
+                (Some("Total"), Some(val), None) => val.parse::<u64>().ok(),
+                _ => None,
             }
         })
+        .ok_or_else(|| Error::new(ParseError))
 }
 
 fn parse_blkio_data(s: String) -> Result<Vec<BlkIoData>> {

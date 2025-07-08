@@ -295,43 +295,48 @@ impl DevicesController {
             let mut s = String::new();
             let res = file.read_to_string(&mut s);
             match res {
-                Ok(_) => {
-                    s.lines().fold(Ok(Vec::new()), |acc, line| {
-                        let ls = line.split(|c| c == ' ' || c == ':').map(|x| x.to_string()).collect::<Vec<String>>();
-                        if acc.is_err() || ls.len() != 4 {
-                            error!("allowed_devices: acc: {:?}, ls: {:?}", acc, ls);
-                            Err(Error::new(ParseError))
-                        } else {
-                            let devtype = DeviceType::from_char(ls[0].chars().next());
-                            let mut major = ls[1].parse::<i64>();
-                            let mut minor = ls[2].parse::<i64>();
-                            if major.is_err() && ls[1] == "*" {
-                                major = Ok(-1);
-                            }
-                            if minor.is_err() && ls[2] == "*" {
-                                minor = Ok(-1);
-                            }
-                            if devtype.is_none() || major.is_err() || minor.is_err() || !DevicePermissions::is_valid(&ls[3]) {
-                                error!("allowed_devices: acc: {:?}, ls: {:?}, devtype: {:?}, major {:?} minor {:?} ls3 {:?}",
-                                         acc, ls, devtype, major, minor, &ls[3]);
-                                Err(Error::new(ParseError))
-                            } else {
-                                let access = DevicePermissions::from_str(&ls[3])?;
-                                let mut acc = acc.unwrap();
-                                acc.push(DeviceResource {
-                                    allow: true,
-                                    devtype: devtype.unwrap(),
-                                    major: major.unwrap(),
-                                    minor: minor.unwrap(),
-                                    access,
-                                });
-                                Ok(acc)
-                            }
-                        }
-                    })
-                },
+                Ok(_) => s
+                    .lines()
+                    .map(|line| parse_device_line(line, true))
+                    .collect(),
                 Err(e) => Err(Error::with_cause(ReadFailed("devices.list".to_string()), e)),
             }
         })
     }
+}
+
+fn parse_device_number(s: &str) -> Result<i64> {
+    if s == "*" {
+        Ok(-1)
+    } else {
+        s.parse::<i64>().map_err(|_| Error::new(ParseError))
+    }
+}
+
+fn parse_device_line(line: &str, allow: bool) -> Result<DeviceResource> {
+    let parts: Vec<&str> = line.split([' ', ':']).collect();
+    if parts.len() != 4 {
+        error!("allowed_devices: invalid line format: {:?}", line);
+        return Err(Error::new(ParseError));
+    }
+
+    let devtype = DeviceType::from_char(parts[0].chars().next()).ok_or_else(|| {
+        error!("allowed_devices: invalid device type: {:?}", parts[0]);
+        Error::new(ParseError)
+    })?;
+    let major = parse_device_number(parts[1]).inspect_err(|_| {
+        error!("allowed_devices: invalid major number: {:?}", parts[1]);
+    })?;
+    let minor = parse_device_number(parts[2]).inspect_err(|_| {
+        error!("allowed_devices: invalid minor number: {:?}", parts[2]);
+    })?;
+    let access = DevicePermissions::from_str(parts[3])?;
+
+    Ok(DeviceResource {
+        allow,
+        devtype,
+        major,
+        minor,
+        access,
+    })
 }

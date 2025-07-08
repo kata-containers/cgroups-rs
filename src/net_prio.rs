@@ -94,36 +94,26 @@ impl NetPrioController {
     }
 
     /// A map of priorities for each network interface.
-    #[allow(clippy::iter_nth_zero, clippy::unnecessary_unwrap)]
     pub fn ifpriomap(&self) -> Result<HashMap<String, u64>> {
         self.open_path("net_prio.ifpriomap", false)
             .and_then(|file| {
                 let bf = BufReader::new(file);
-                bf.lines().fold(Ok(HashMap::new()), |acc, line| {
-                    if acc.is_err() {
-                        acc
-                    } else {
-                        let mut acc = acc.unwrap();
-                        let l = line.unwrap();
-                        let mut sp = l.split_whitespace();
+                bf.lines()
+                    .map(|line| {
+                        let line = line.map_err(|_| Error::new(ParseError))?;
+                        let mut parts = line.split_whitespace();
 
-                        let ifname = sp.nth(0);
-                        let ifprio = sp.nth(1);
-                        if ifname.is_none() || ifprio.is_none() {
-                            Err(Error::new(ParseError))
-                        } else {
-                            let ifname = ifname.unwrap();
-                            let ifprio = ifprio.unwrap().trim().parse();
-                            match ifprio {
-                                Err(e) => Err(Error::with_cause(ParseError, e)),
-                                Ok(_) => {
-                                    acc.insert(ifname.to_string(), ifprio.unwrap());
-                                    Ok(acc)
-                                }
-                            }
-                        }
-                    }
-                })
+                        let ifname = parts.next().ok_or(Error::new(ParseError))?;
+                        let ifprio_str = parts.next().ok_or(Error::new(ParseError))?;
+
+                        let ifprio = ifprio_str
+                            .trim()
+                            .parse()
+                            .map_err(|e| Error::with_cause(ParseError, e))?;
+
+                        Ok((ifname.to_string(), ifprio))
+                    })
+                    .collect::<Result<HashMap<String, _>>>()
             })
     }
 

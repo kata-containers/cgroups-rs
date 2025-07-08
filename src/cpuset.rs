@@ -602,7 +602,7 @@ mod tests {
             "1,2,3,4".to_string(),
             "1-5,6-7,8-9".to_string(),
         ];
-        let expecteds = vec![
+        let expecteds = [
             vec![(1, 1), (2, 2), (4, 6), (9, 9)],
             vec![],
             vec![(1, 1)],
