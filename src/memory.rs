@@ -142,9 +142,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
     let hier_unevict_line = ls.next().unwrap_or_default();
 
     Ok(NumaStat {
-        total_pages: total_line
-            .split(|x| x == ' ' || x == '=')
-            .collect::<Vec<_>>()[1]
+        total_pages: total_line.split([' ', '=']).collect::<Vec<_>>()[1]
             .parse::<u64>()
             .unwrap_or(0),
         total_pages_per_node: {
@@ -157,9 +155,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
                 })
                 .collect()
         },
-        file_pages: file_line
-            .split(|x| x == ' ' || x == '=')
-            .collect::<Vec<_>>()[1]
+        file_pages: file_line.split([' ', '=']).collect::<Vec<_>>()[1]
             .parse::<u64>()
             .unwrap_or(0),
         file_pages_per_node: {
@@ -172,9 +168,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
                 })
                 .collect()
         },
-        anon_pages: anon_line
-            .split(|x| x == ' ' || x == '=')
-            .collect::<Vec<_>>()[1]
+        anon_pages: anon_line.split([' ', '=']).collect::<Vec<_>>()[1]
             .parse::<u64>()
             .unwrap_or(0),
         anon_pages_per_node: {
@@ -187,9 +181,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
                 })
                 .collect()
         },
-        unevictable_pages: unevict_line
-            .split(|x| x == ' ' || x == '=')
-            .collect::<Vec<_>>()[1]
+        unevictable_pages: unevict_line.split([' ', '=']).collect::<Vec<_>>()[1]
             .parse::<u64>()
             .unwrap_or(0),
         unevictable_pages_per_node: {
@@ -204,9 +196,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
         },
         hierarchical_total_pages: {
             if !hier_total_line.is_empty() {
-                hier_total_line
-                    .split(|x| x == ' ' || x == '=')
-                    .collect::<Vec<_>>()[1]
+                hier_total_line.split([' ', '=']).collect::<Vec<_>>()[1]
                     .parse::<u64>()
                     .unwrap_or(0)
             } else {
@@ -229,9 +219,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
         },
         hierarchical_file_pages: {
             if !hier_file_line.is_empty() {
-                hier_file_line
-                    .split(|x| x == ' ' || x == '=')
-                    .collect::<Vec<_>>()[1]
+                hier_file_line.split([' ', '=']).collect::<Vec<_>>()[1]
                     .parse::<u64>()
                     .unwrap_or(0)
             } else {
@@ -254,9 +242,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
         },
         hierarchical_anon_pages: {
             if !hier_anon_line.is_empty() {
-                hier_anon_line
-                    .split(|x| x == ' ' || x == '=')
-                    .collect::<Vec<_>>()[1]
+                hier_anon_line.split([' ', '=']).collect::<Vec<_>>()[1]
                     .parse::<u64>()
                     .unwrap_or(0)
             } else {
@@ -279,9 +265,7 @@ fn parse_numa_stat(s: String) -> Result<NumaStat> {
         },
         hierarchical_unevictable_pages: {
             if !hier_unevict_line.is_empty() {
-                hier_unevict_line
-                    .split(|x| x == ' ' || x == '=')
-                    .collect::<Vec<_>>()[1]
+                hier_unevict_line.split([' ', '=']).collect::<Vec<_>>()[1]
                     .parse::<u64>()
                     .unwrap_or(0)
             } else {
