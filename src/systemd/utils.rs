@@ -62,3 +62,40 @@ pub fn expand_slice(slice: &str) -> Result<String> {
 
     Ok(slice_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::systemd::utils::*;
+
+    #[test]
+    fn test_is_slice_unit() {
+        assert!(is_slice_unit("test.slice"));
+        assert!(!is_slice_unit("test.scope"));
+    }
+
+    #[test]
+    fn test_is_scope_unit() {
+        assert!(is_scope_unit("test.scope"));
+        assert!(!is_scope_unit("test.slice"));
+    }
+
+    #[test]
+    fn test_expand_slice() {
+        assert_eq!(expand_slice("test.slice").unwrap(), "test.slice");
+        assert_eq!(
+            expand_slice("test-1.slice").unwrap(),
+            "test.slice/test-1.slice"
+        );
+        assert_eq!(
+            expand_slice("test-1-test-2.slice").unwrap(),
+            "test.slice/test-1.slice/test-1-test.slice/test-1-test-2.slice"
+        );
+        assert_eq!(
+            expand_slice("slice-slice.slice").unwrap(),
+            "slice.slice/slice-slice.slice"
+        );
+        assert_eq!(expand_slice("-.slice").unwrap(), "");
+        assert!(expand_slice("invalid/slice").is_err());
+        assert!(expand_slice("invalid-slice").is_err());
+    }
+}

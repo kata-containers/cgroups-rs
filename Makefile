@@ -21,7 +21,16 @@ build: debug
 
 .PHONY: test
 test:
-	cargo test -- --color always --nocapture
+# tests for systemd client should run in sequence, see [1].
+#
+# 1: https://github.com/kata-containers/cgroups-rs/pull/148
+	cargo test -- --color always --nocapture \
+	  --skip systemd::dbus::client::tests
+	
+	cargo test --package cgroups-rs --lib \
+	    -- systemd::dbus::client::tests \
+	    --color always --nocapture \
+		--test-threads=1
 
 .PHONY: check
 check: fmt clippy

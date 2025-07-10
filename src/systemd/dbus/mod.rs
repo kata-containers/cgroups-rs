@@ -75,3 +75,6 @@ pub const MEMORY_LOW: &str = "MemoryLow";
 pub const MEMORY_SWAP_MAX: &str = "MemorySwapMax";
 /// Tasks max
 pub const TASKS_MAX: &str = "TasksMax";
+
+#[cfg(test)]
+pub use client::tests::{spawn_sleep_inf, spawn_yes, systemd_version};
