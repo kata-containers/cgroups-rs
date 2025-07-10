@@ -48,3 +48,46 @@ impl From<&std::process::Child> for CgroupPid {
         CgroupPid { pid: u.id() as u64 }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use std::fs;
+    use std::process::{Child, Command, Stdio};
+
+    /// Start a mock subprocess that will sleep forever
+    pub fn spawn_sleep_inf() -> Child {
+        let child = Command::new("sleep")
+            .arg("infinity")
+            .spawn()
+            .expect("Failed to start mock subprocess");
+        child
+    }
+
+    pub fn spawn_yes() -> Child {
+        let devnull = fs::File::create("/dev/null").expect("cannot open /dev/null");
+        let child = Command::new("yes")
+            .stdout(Stdio::from(devnull))
+            .spawn()
+            .expect("Failed to start mock subprocess");
+        child
+    }
+
+    pub fn systemd_version() -> Option<usize> {
+        let output = Command::new("systemd").arg("--version").output().ok()?; // Return None if command execution fails
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // The first line is typically like "systemd 254 (254.5-1-arch)"
+        let first_line = stdout.lines().next()?;
+        let mut words = first_line.split_whitespace();
+
+        words.next()?; // Skip the "systemd" word
+        let version_str = words.next()?; // The version number as string
+
+        version_str.parse::<usize>().ok()
+    }
+}
