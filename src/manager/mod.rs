@@ -84,3 +84,30 @@ pub trait Manager: Send + Sync {
     /// Indicate whether the cgroup manager is using cgroup v2.
     fn v2(&self) -> bool;
 }
+
+#[cfg(test)]
+mod tests {
+    pub const MEMORY_512M: i64 = 512 * 1024 * 1024; // 512 MiB
+    pub const MEMORY_1G: i64 = 1024 * 1024 * 1024; // 1 GiB
+    pub const MEMORY_2G: i64 = 2 * 1024 * 1024 * 1024; // 2 GiB
+
+    #[macro_export]
+    macro_rules! skip_if_cgroups_v1 {
+        () => {
+            if !$crate::fs::hierarchies::is_cgroup2_unified_mode() {
+                eprintln!("Skipping test in cgroups v1 mode");
+                return;
+            }
+        };
+    }
+
+    #[macro_export]
+    macro_rules! skip_if_cgroups_v2 {
+        () => {
+            if $crate::fs::hierarchies::is_cgroup2_unified_mode() {
+                eprintln!("Skipping test in cgroups v2 mode");
+                return;
+            }
+        };
+    }
+}

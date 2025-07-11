@@ -1086,3 +1086,335 @@ impl BlkioStat {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the `FsManager` implementation of the `Manager` trait.
+    //!
+    //! Don't run tests in parallel, use `--test-threads=1`!
+    //!
+
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+    use oci_spec::runtime::{LinuxCpuBuilder, LinuxMemoryBuilder, LinuxResourcesBuilder};
+
+    use crate::manager::fs::*;
+    use crate::manager::tests::{MEMORY_1G, MEMORY_2G, MEMORY_512M};
+    use crate::tests::spawn_sleep_inf;
+    use crate::{skip_if_cgroups_v1, skip_if_cgroups_v2};
+
+    const TEST_BASE: &str = "cgroupsrs/pod";
+
+    impl FsManager {
+        pub fn cgroup(&self) -> &Cgroup {
+            &self.cgroup
+        }
+    }
+
+    fn clean_cgroups(path: &str) {
+        let dirs = path.split("/").fold(vec![], |mut acc, dir| {
+            if let Some(last) = acc.last() {
+                acc.push(format!("{}/{}", last, dir));
+            } else {
+                acc.push(dir.to_string());
+            }
+            acc
+        });
+
+        for dir in dirs.iter().rev() {
+            let paths = parse_cgroup_subsystems().unwrap();
+            let mounts = parse_cgroup_mountinfo(&paths).unwrap();
+
+            if hierarchies::is_cgroup2_unified_mode() {
+                let full = join_path(UNIFIED_MOUNTPOINT, dir);
+                let path = Path::new(&full);
+                if path.exists() {
+                    // kill processes in cgroup.procs
+                    let processes =
+                        fs::read_to_string(path.join("cgroup.procs")).unwrap_or_default();
+                    for pid in processes.lines() {
+                        if let Ok(pid) = pid.parse() {
+                            // kill the process
+                            let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
+                        }
+                    }
+                    fs::remove_dir(path).unwrap();
+                }
+            } else {
+                for (subsystem, mountpoint) in mounts.iter() {
+                    let full = join_path(mountpoint, paths.get(subsystem).unwrap());
+                    let full = join_path(&full, dir);
+                    let path = Path::new(&full);
+                    if path.exists() {
+                        // kill processes in the cgroup, by going through
+                        // `tasks`
+                        let tasks = fs::read_to_string(path.join("tasks")).unwrap_or_default();
+                        for pid in tasks.lines() {
+                            if let Ok(pid) = pid.parse() {
+                                // kill the process
+                                let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
+                            }
+                        }
+                        fs::remove_dir(path).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    fn new_manager() -> FsManager {
+        clean_cgroups(TEST_BASE);
+        FsManager::new(TEST_BASE).unwrap()
+    }
+
+    fn run_set_resources_failed(resources: LinuxResources) {
+        let mut child = spawn_sleep_inf();
+        let mut manager = new_manager();
+        manager
+            .add_proc(CgroupPid {
+                pid: child.id() as u64,
+            })
+            .unwrap();
+        assert!(manager.set(&resources).is_err());
+        manager.destroy().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    fn run_set_resources<F>(linux_resources: LinuxResources, test_fn: F)
+    where
+        F: FnOnce(&mut FsManager),
+    {
+        let mut child = spawn_sleep_inf();
+        let mut manager = new_manager();
+        manager
+            .add_proc(CgroupPid {
+                pid: child.id() as u64,
+            })
+            .unwrap();
+        manager.set(&linux_resources).unwrap();
+        test_fn(&mut manager);
+        manager.destroy().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn test_parse_value_from_tuples() {
+        let tuple_str = "system 100000\nuser 200000";
+        assert_eq!(
+            parse_value_from_tuples::<u64>(tuple_str, "user"),
+            Some(200000)
+        );
+        assert_eq!(
+            parse_value_from_tuples::<u64>(tuple_str, "system"),
+            Some(100000)
+        );
+        assert_eq!(parse_value_from_tuples::<u64>(tuple_str, "user1"), None);
+    }
+
+    #[test]
+    fn test_paths_and_mounts() {
+        let mut manager = new_manager();
+
+        for (subsystem, mountpoint) in manager.mounts() {
+            let subsys = if subsystem.is_empty() {
+                assert!(manager.v2());
+                None
+            } else {
+                Some(subsystem.as_str())
+            };
+            let path = manager.cgroup_path(subsys).unwrap();
+            let path = join_path(mountpoint, &path);
+            assert!(Path::new(&path).exists(), "Cgroup {} does not exist", path);
+        }
+
+        manager.destroy().unwrap();
+    }
+
+    #[test]
+    fn test_destroy() {
+        let mut manager = new_manager();
+        manager.create_cgroups().unwrap();
+
+        let cgroup_path = if manager.v2() {
+            manager.cgroup_path(None).unwrap()
+        } else {
+            manager.cgroup_path(Some("memory")).unwrap()
+        };
+        assert!(
+            Path::new(&cgroup_path).exists(),
+            "Cgroup should exist before destroy"
+        );
+
+        manager.destroy().unwrap();
+        assert!(
+            !Path::new(&cgroup_path).exists(),
+            "Cgroup should not exist after destroy"
+        );
+    }
+
+    #[test]
+    fn test_set_cpu() {
+        // 1024 shares, every 100ms allows to use 1 CPU
+        let linux_cpu = LinuxCpuBuilder::default()
+            .shares(1024u64)
+            .quota(100000i64)
+            .period(100000u64)
+            .quota(100000i64)
+            .build()
+            .unwrap();
+
+        let linux_resources = LinuxResourcesBuilder::default()
+            .cpu(linux_cpu)
+            .build()
+            .unwrap();
+
+        run_set_resources(linux_resources, |manager| {
+            let controller: &CpuController = manager.controller().unwrap();
+            let shares = controller.shares().unwrap();
+            let period = controller.cfs_period().unwrap();
+            let quota = controller.cfs_quota().unwrap();
+
+            if manager.v2() {
+                assert_eq!(shares, conv::cpu_shares_to_cgroup_v2(1024));
+            } else {
+                assert_eq!(shares, 1024);
+            }
+
+            assert_eq!(period, 100000);
+            assert_eq!(quota, 100000);
+        })
+    }
+
+    #[test]
+    fn test_set_memory_v2() {
+        skip_if_cgroups_v1!();
+
+        // expected failure: swap < limit
+        let linux_memory = LinuxMemoryBuilder::default()
+            .limit(MEMORY_1G)
+            .swap(MEMORY_512M)
+            .build()
+            .unwrap();
+        let linux_resources = LinuxResourcesBuilder::default()
+            .memory(linux_memory)
+            .build()
+            .unwrap();
+        run_set_resources_failed(linux_resources);
+
+        let linux_memory = LinuxMemoryBuilder::default()
+            .limit(MEMORY_512M)
+            .swap(MEMORY_1G)
+            .reservation(MEMORY_2G)
+            .build()
+            .unwrap();
+        let linux_resources = LinuxResourcesBuilder::default()
+            .memory(linux_memory)
+            .build()
+            .unwrap();
+        run_set_resources(linux_resources, |manager| {
+            let controller: &MemController = manager.controller().unwrap();
+            let memory_stat = controller.memory_stat();
+            let memory_swap_stat = controller.memswap();
+
+            assert_eq!(memory_stat.limit_in_bytes, MEMORY_512M);
+            assert_eq!(memory_swap_stat.limit_in_bytes, MEMORY_512M);
+            assert_eq!(memory_stat.soft_limit_in_bytes, MEMORY_2G);
+        });
+    }
+
+    #[test]
+    fn test_set_memory_v1() {
+        skip_if_cgroups_v2!();
+
+        let linux_memory = LinuxMemoryBuilder::default()
+            .limit(MEMORY_512M)
+            .swap(MEMORY_512M)
+            .reservation(MEMORY_512M)
+            .disable_oom_killer(true)
+            .swappiness(50u64)
+            .build()
+            .unwrap();
+        let linux_resources = LinuxResourcesBuilder::default()
+            .memory(linux_memory)
+            .build()
+            .unwrap();
+        run_set_resources(linux_resources, |manager| {
+            let controller: &MemController = manager.controller().unwrap();
+            let memory_stat = controller.memory_stat();
+            let memory_swap_stat = controller.memswap();
+
+            assert_eq!(memory_stat.limit_in_bytes, MEMORY_512M);
+            assert_eq!(memory_swap_stat.limit_in_bytes, MEMORY_512M);
+            assert_eq!(memory_stat.soft_limit_in_bytes, MEMORY_512M);
+            assert_eq!(memory_stat.swappiness, 50);
+            assert!(memory_stat.oom_control.oom_kill_disable);
+        });
+
+        // expected failure: swapiness too high
+        let linux_memory = LinuxMemoryBuilder::default()
+            .swappiness(101u64)
+            .build()
+            .unwrap();
+        let linux_resources = LinuxResourcesBuilder::default()
+            .memory(linux_memory)
+            .build()
+            .unwrap();
+        run_set_resources_failed(linux_resources);
+    }
+
+    fn parse_cpu_list(online_str: &str) -> Vec<u32> {
+        let mut cpus = Vec::new();
+        for part in online_str.trim().split(',') {
+            if let Some((start, end)) = part.split_once('-') {
+                let start: u32 = start.parse().unwrap();
+                let end: u32 = end.parse().unwrap();
+                cpus.extend(start..=end);
+            } else {
+                cpus.push(part.parse().unwrap());
+            }
+        }
+        cpus
+    }
+
+    #[test]
+    fn test_enable_cpus_topdown() {
+        let cpuset_cpus_path = format!("/sys/fs/cgroup/{}/cpuset.cpus", TEST_BASE);
+        let online_cpus = fs::read_to_string("/sys/devices/system/cpu/online").unwrap();
+        let cpus = parse_cpu_list(&online_cpus);
+
+        // Skip this test if there are less than 2 CPUs online
+        if cpus.len() < 2 {
+            return;
+        }
+
+        let linux_cpu = LinuxCpuBuilder::default()
+            .cpus(format!("{}", cpus[0]))
+            .build()
+            .unwrap();
+        let linux_resources = LinuxResourcesBuilder::default()
+            .cpu(linux_cpu)
+            .build()
+            .unwrap();
+        run_set_resources(linux_resources, |manager| {
+            let cpus1 = fs::read_to_string(&cpuset_cpus_path).unwrap();
+            let cpus1 = parse_cpu_list(&cpus1);
+            assert_eq!(cpus[..1], cpus1);
+
+            manager
+                .enable_cpus_topdown(&format!("{},{}", cpus[0], cpus[1]))
+                .unwrap();
+            let cpuset_cpus = fs::read_to_string(&cpuset_cpus_path).unwrap();
+            let cpus2 = parse_cpu_list(&cpuset_cpus);
+            assert_eq!(cpus[..2], cpus2);
+        });
+    }
+
+    #[test]
+    fn test_systemd() {
+        let mut manager = new_manager();
+        assert!(!manager.systemd(), "FsManager should not be systemd");
+        manager.destroy().unwrap();
+    }
+}

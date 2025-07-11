@@ -19,10 +19,14 @@ build: debug
 # Tests and linters
 #
 
-.PHONY: test
-test: test-systemd
-	cargo test -- --color always --nocapture \
-	  --skip systemd::dbus::client::tests
+# Tests that manipulate cgroups should run in sequence, so that
+# `--test-threads=1` is used.
+test: test-systemd test-fs-manager test-systemd-manager
+	cargo test --all-features -- --color always \
+	  --nocapture \
+	  --skip systemd::dbus::client::tests \
+	  --skip manager::fs::tests \
+	  --skip manager::systemd::tests
 
 .PHONY: test-systemd
 # Tests that manipulate cgroups should run in sequence, so that
@@ -32,6 +36,20 @@ test-systemd:
 	    -- systemd::dbus::client::tests \
 	    --color always --nocapture \
 		--test-threads=1
+
+.PHONY: test-fs-manager
+# See test-systemd
+test-fs-manager:
+	cargo test --all-features --package cgroups-rs \
+		--lib -- manager::fs::tests \
+		--color always --nocapture --test-threads=1
+
+.PHONY: test-systemd-manager
+# See test-systemd
+test-systemd-manager:
+	cargo test --all-features --package cgroups-rs \
+	  --lib -- manager::systemd::tests \
+	  --color always --nocapture --test-threads=1
 
 .PHONY: check
 check: fmt clippy

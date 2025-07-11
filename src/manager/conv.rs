@@ -67,3 +67,47 @@ pub(crate) fn memory_swap_to_cgroup_v2(memswap_limit: i64, mem_limit: i64) -> Re
 
     Ok(memswap_limit - mem_limit)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::manager::conv::*;
+
+    #[test]
+    fn test_cpu_shares_to_cgroup_v2() {
+        assert_eq!(cpu_shares_to_cgroup_v2(0), 0);
+        assert_eq!(cpu_shares_to_cgroup_v2(1), 1);
+        assert_eq!(cpu_shares_to_cgroup_v2(2), 1);
+        assert_eq!(cpu_shares_to_cgroup_v2(100), 4);
+        assert_eq!(
+            cpu_shares_to_cgroup_v2(CPU_SHARES_V1_MAX),
+            CPU_WEIGHT_V2_MAX
+        );
+        assert_eq!(
+            cpu_shares_to_cgroup_v2(CPU_SHARES_V1_MAX - 1),
+            CPU_WEIGHT_V2_MAX - 1
+        );
+        assert_eq!(cpu_shares_to_cgroup_v2(u64::MAX), CPU_WEIGHT_V2_MAX);
+    }
+
+    #[test]
+    fn test_memory_swap_to_cgroup_v2() {
+        // memory no limit and swap is 0, treat it as no limit
+        assert_eq!(memory_swap_to_cgroup_v2(0, -1).unwrap(), -1);
+        // -1 is "max", 0 is "unset", so treat as is
+        assert_eq!(memory_swap_to_cgroup_v2(-1, 0).unwrap(), -1);
+        assert_eq!(memory_swap_to_cgroup_v2(0, 0).unwrap(), 0);
+
+        // Now swap cannot be 0 or -1
+
+        // Unlimited memory, so treat swap as is.
+        assert_eq!(memory_swap_to_cgroup_v2(100, -1).unwrap(), 100);
+        // Unset or unknown memory, can't calculate swap.
+        assert!(memory_swap_to_cgroup_v2(100, 0).is_err());
+        // Does not make sense to subtract a negative value.
+        assert!(memory_swap_to_cgroup_v2(100, -2).is_err());
+        // Swap + mem < mem
+        assert!(memory_swap_to_cgroup_v2(50, 100).is_err());
+        // Real swap
+        assert_eq!(memory_swap_to_cgroup_v2(200, 100).unwrap(), 100);
+    }
+}
