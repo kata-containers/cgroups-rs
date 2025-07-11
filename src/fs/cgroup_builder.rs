@@ -16,10 +16,10 @@
 //! by a call to `build()`.
 //!
 //! ```rust,no_run
-//! # use cgroups_rs::*;
-//! # use cgroups_rs::devices::*;
-//! # use cgroups_rs::cgroup_builder::*;
-//! let h = cgroups_rs::hierarchies::auto();
+//! # use cgroups_rs::fs::*;
+//! # use cgroups_rs::fs::devices::*;
+//! # use cgroups_rs::fs::cgroup_builder::*;
+//! let h = cgroups_rs::fs::hierarchies::auto();
 //! let cgroup: Cgroup = CgroupBuilder::new("hello")
 //!      .memory()
 //!          .kernel_memory_limit(1024 * 1024)
@@ -60,7 +60,7 @@
 //!      .build(h).unwrap();
 //! ```
 
-use crate::{
+use crate::fs::{
     BlkIoDeviceResource, BlkIoDeviceThrottleResource, Cgroup, DeviceResource, Error, Hierarchy,
     HugePageResource, MaxValue, NetworkPriority, Resources,
 };
@@ -250,9 +250,9 @@ impl DeviceResourceBuilder {
         mut self,
         major: i64,
         minor: i64,
-        devtype: crate::devices::DeviceType,
+        devtype: crate::fs::devices::DeviceType,
         allow: bool,
-        access: Vec<crate::devices::DevicePermissions>,
+        access: Vec<crate::fs::devices::DevicePermissions>,
     ) -> DeviceResourceBuilder {
         self.cgroup.resources.devices.devices.push(DeviceResource {
             allow,

@@ -5,20 +5,22 @@
 //
 
 //! Simple unit tests about the control groups system.
-use cgroups_rs::cgroup::{
-    CGROUP_MODE_DOMAIN, CGROUP_MODE_DOMAIN_INVALID, CGROUP_MODE_DOMAIN_THREADED,
-    CGROUP_MODE_THREADED,
-};
-use cgroups_rs::memory::MemController;
-use cgroups_rs::Controller;
-use cgroups_rs::{Cgroup, CgroupPid, Subsystem};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
+use cgroups_rs::fs::cgroup::{
+    CGROUP_MODE_DOMAIN, CGROUP_MODE_DOMAIN_INVALID, CGROUP_MODE_DOMAIN_THREADED,
+    CGROUP_MODE_THREADED,
+};
+use cgroups_rs::fs::memory::MemController;
+use cgroups_rs::fs::Controller;
+use cgroups_rs::fs::{Cgroup, Subsystem};
+use cgroups_rs::CgroupPid;
+
 #[test]
 fn test_procs_iterator_cgroup() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
     let cg = Cgroup::new(h, String::from("test_procs_iterator_cgroup")).unwrap();
     {
@@ -42,10 +44,10 @@ fn test_procs_iterator_cgroup() {
 
 #[test]
 fn test_tasks_iterator_cgroup_v1() {
-    if cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
     let cg = Cgroup::new(h, String::from("test_tasks_iterator_cgroup_v1")).unwrap();
     {
@@ -69,23 +71,23 @@ fn test_tasks_iterator_cgroup_v1() {
 
 #[test]
 fn test_tasks_iterator_cgroup_threaded_mode() {
-    if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if !cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
     let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
     let cg = Cgroup::new(
-        cgroups_rs::hierarchies::auto(),
+        cgroups_rs::fs::hierarchies::auto(),
         String::from("test_tasks_iterator_cgroup_threaded_mode"),
     )
     .unwrap();
     let cg_threaded_sub1 = Cgroup::new_with_specified_controllers(
-        cgroups_rs::hierarchies::auto(),
+        cgroups_rs::fs::hierarchies::auto(),
         String::from("test_tasks_iterator_cgroup_threaded_mode/threaded_sub1"),
         Some(vec![String::from("cpuset"), String::from("cpu")]),
     )
     .unwrap();
     let cg_threaded_sub2 = Cgroup::new_with_specified_controllers(
-        cgroups_rs::hierarchies::auto(),
+        cgroups_rs::fs::hierarchies::auto(),
         String::from("test_tasks_iterator_cgroup_threaded_mode/threaded_sub2"),
         Some(vec![String::from("cpuset"), String::from("cpu")]),
     )
@@ -163,10 +165,10 @@ fn test_tasks_iterator_cgroup_threaded_mode() {
 
 #[test]
 fn test_kill_cgroup() {
-    if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if !cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_kill_cgroup")).unwrap();
     {
         // Spawn a proc, don't want to getpid(2) here.
@@ -206,10 +208,10 @@ fn test_kill_cgroup() {
 
 #[test]
 fn test_cgroup_with_relative_paths() {
-    if cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cgroup_root = h.root();
     let cgroup_name = "test_cgroup_with_relative_paths";
 
@@ -247,10 +249,10 @@ fn test_cgroup_with_relative_paths() {
 
 #[test]
 fn test_cgroup_v2() {
-    if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+    if !cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
         return;
     }
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_v2")).unwrap();
 
     let mem_controller: &MemController = cg.controller_of().unwrap();

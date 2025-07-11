@@ -12,10 +12,10 @@ use std::path::PathBuf;
 
 use log::*;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::{
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, DeviceResource, DeviceResources,
     Resources, Subsystem,
 };
