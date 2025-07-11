@@ -245,6 +245,7 @@ mod sealed {
 }
 
 pub(crate) use crate::fs::sealed::{ControllerInternal, CustomizedAttribute};
+use crate::CgroupPid;
 
 /// A Controller is a subsystem attached to the control group.
 ///
@@ -769,26 +770,6 @@ pub struct Resources {
     pub hugepages: HugePageResources,
     /// Block device I/O related limits.
     pub blkio: BlkIoResources,
-}
-
-/// A structure representing a `pid`. Currently implementations exist for `u64` and
-/// `std::process::Child`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct CgroupPid {
-    /// The process identifier
-    pub pid: u64,
-}
-
-impl From<u64> for CgroupPid {
-    fn from(u: u64) -> CgroupPid {
-        CgroupPid { pid: u }
-    }
-}
-
-impl From<&std::process::Child> for CgroupPid {
-    fn from(u: &std::process::Child) -> CgroupPid {
-        CgroupPid { pid: u.id() as u64 }
-    }
 }
 
 impl Subsystem {
