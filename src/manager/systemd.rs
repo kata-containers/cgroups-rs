@@ -318,3 +318,154 @@ fn ms_to_us(ms: u64) -> u64 {
 fn s_to_us(s: u64) -> u64 {
     s * 1_000_000
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use oci_spec::runtime::{LinuxCpuBuilder, LinuxResourcesBuilder};
+    use rand::distributions::Alphanumeric;
+    use rand::Rng;
+
+    use crate::fs::cpu::CpuController;
+    use crate::fs::{ControllIdentifier, Controller, Subsystem};
+    use crate::manager::systemd::*;
+    use crate::skip_if_no_systemd;
+    use crate::systemd::dbus::spawn_sleep_inf;
+
+    fn new_cgroups_path() -> (String, String, String) {
+        let rand_string: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(5)
+            .map(char::from)
+            .collect();
+        (
+            "cgrouprs-test.slice".to_string(),
+            "cri".to_string(),
+            format!("pod{}", rand_string),
+        )
+    }
+
+    fn new_systemd_manager() -> SystemdManager {
+        let (slice, scope_prefix, name) = new_cgroups_path();
+        SystemdManager::new(&format!("{}:{}:{}", slice, scope_prefix, name)).unwrap()
+    }
+
+    fn run_set_resources<F>(linux_resources: LinuxResources, test_fn: F)
+    where
+        F: FnOnce(&mut SystemdManager),
+    {
+        let mut manager = new_systemd_manager();
+        let mut child = spawn_sleep_inf();
+
+        manager
+            .apply(CgroupPid {
+                pid: child.id() as u64,
+            })
+            .unwrap();
+        manager.set(&linux_resources).unwrap();
+
+        test_fn(&mut manager);
+
+        manager.destroy().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn test_new_unit_name() {
+        assert_eq!(new_unit_name("test", "unit"), "test-unit.scope");
+        assert_eq!(new_unit_name("test", "unit.slice"), "unit.slice");
+        assert_eq!(new_unit_name("", "unit"), "unit.scope");
+        assert_eq!(new_unit_name("", "unit.slice"), "unit.slice");
+        assert_eq!(new_unit_name("prefix", "unit"), "prefix-unit.scope");
+    }
+
+    #[test]
+    fn test_slice_and_unit() {
+        skip_if_no_systemd!();
+
+        let (slice, scope_prefix, name) = new_cgroups_path();
+        let manager = SystemdManager::new(&format!("{}:{}:{}", slice, scope_prefix, name)).unwrap();
+
+        assert_eq!(manager.slice(), "cgrouprs-test.slice");
+        assert_eq!(manager.unit(), format!("{scope_prefix}-{name}.scope"));
+    }
+
+    #[test]
+    fn test_destory() {
+        skip_if_no_systemd!();
+
+        let (slice, scope_prefix, name) = new_cgroups_path();
+        let mut manager =
+            SystemdManager::new(&format!("{}:{}:{}", slice, scope_prefix, name)).unwrap();
+
+        let cgroup_path = manager.cgroup_path(Some("memory")).unwrap();
+        // Before starting the unit, no cgroup should exist.
+        assert!(!Path::new(&cgroup_path).exists());
+
+        let mut child = spawn_sleep_inf();
+        manager
+            .apply(CgroupPid {
+                pid: child.id() as u64,
+            })
+            .unwrap();
+
+        // Now cgroup should exist.
+        assert!(Path::new(&cgroup_path).exists());
+
+        manager.destroy().unwrap();
+
+        // This process should be killed.
+        child.wait().unwrap();
+
+        // No cgroup should exist after destroy.
+        assert!(!Path::new(&cgroup_path).exists());
+        // Unit should be stopped.
+        assert!(!manager.systemd_client.exists());
+    }
+
+    fn controller<'a, T>(fs_manager: &'a FsManager) -> &'a T
+    where
+        &'a T: From<&'a Subsystem>,
+        T: Controller + ControllIdentifier,
+    {
+        let controller: &T = fs_manager.cgroup.controller_of().unwrap();
+
+        controller
+    }
+
+    #[test]
+    fn test_set_cpu() {
+        skip_if_no_systemd!();
+
+        // 1024 shares, every 100ms allows to use 1 CPU
+        let linux_cpu = LinuxCpuBuilder::default()
+            .shares(1024u64)
+            .quota(100000i64)
+            .period(100000u64)
+            .quota(100000i64)
+            .build()
+            .unwrap();
+
+        let linux_resources = LinuxResourcesBuilder::default()
+            .cpu(linux_cpu)
+            .build()
+            .unwrap();
+
+        run_set_resources(linux_resources, |manager| {
+            let controller: &CpuController = controller(&manager.fs_manager);
+            let shares = controller.shares().unwrap();
+            let period = controller.cfs_period().unwrap();
+            let quota = controller.cfs_quota().unwrap();
+
+            if manager.v2() {
+                assert_eq!(shares, conv::cpu_shares_to_cgroup_v2(1024));
+            } else {
+                assert_eq!(shares, 1024);
+            }
+
+            assert_eq!(period, 100000);
+            assert_eq!(quota, 100000);
+        })
+    }
+}

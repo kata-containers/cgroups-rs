@@ -81,3 +81,24 @@ pub trait Manager {
     /// Indicate whether the cgroup manager is using cgroupsv2.
     fn v2(&self) -> bool;
 }
+
+#[cfg(test)]
+mod tests {
+    #[macro_export]
+    macro_rules! skip_if_cgroups_v1 {
+        () => {
+            if !$crate::fs::hierarchies::is_cgroup2_unified_mode() {
+                return;
+            }
+        };
+    }
+
+    #[macro_export]
+    macro_rules! skip_if_cgroups_v2 {
+        () => {
+            if $crate::fs::hierarchies::is_cgroup2_unified_mode() {
+                return;
+            }
+        };
+    }
+}
