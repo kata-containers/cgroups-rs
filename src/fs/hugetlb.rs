@@ -12,11 +12,11 @@ use log::warn;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
-use crate::{flat_keyed_to_vec, read_u64_from};
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
+use crate::fs::{flat_keyed_to_vec, read_u64_from};
 
-use crate::{
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, HugePageResources, Resources, Subsystem,
 };
 

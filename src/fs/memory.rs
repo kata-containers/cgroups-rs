@@ -14,14 +14,14 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
-use crate::events;
-use crate::{read_i64_from, read_string_from, read_u64_from};
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
+use crate::fs::events;
+use crate::fs::{read_i64_from, read_string_from, read_u64_from};
 
-use crate::flat_keyed_to_hashmap;
+use crate::fs::flat_keyed_to_hashmap;
 
-use crate::{
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, CustomizedAttribute, MaxValue,
     MemoryResources, Resources, Subsystem,
 };
@@ -1002,7 +1002,7 @@ impl<'a> From<&'a Subsystem> for &'a MemController {
 
 #[cfg(test)]
 mod tests {
-    use crate::memory::{
+    use crate::fs::memory::{
         parse_memory_stat, parse_numa_stat, parse_oom_control, MemoryStat, NumaStat, OomControl,
     };
 

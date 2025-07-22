@@ -17,9 +17,15 @@ nix = { version = "0.25.0", default-features = false, features = ["event", "fs",
 libc = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "1"
+oci-spec = { version = "0.8.1", optional = true }
+zbus = "5.8"
+bit-vec = "0.6"
 
 [dev-dependencies]
 libc = "0.2.76"
+rand = "0.8"
+nix = "0.25"
 
 [features]
 default = []
+oci = ["oci-spec"]

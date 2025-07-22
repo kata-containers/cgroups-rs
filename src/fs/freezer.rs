@@ -11,10 +11,10 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
-
-use crate::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
+use crate::fs::{ControllIdentifier, ControllerInternal, Controllers, Resources, Subsystem};
+use crate::FreezerState;
 
 /// A controller that allows controlling the `freezer` subsystem of a Cgroup.
 ///
@@ -29,17 +29,6 @@ pub struct FreezerController {
     base: PathBuf,
     path: PathBuf,
     v2: bool,
-}
-
-/// The current state of the control group
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum FreezerState {
-    /// The processes in the control group are _not_ frozen.
-    Thawed,
-    /// The processes in the control group are in the processes of being frozen.
-    Freezing,
-    /// The processes in the control group are frozen.
-    Frozen,
 }
 
 impl ControllerInternal for FreezerController {

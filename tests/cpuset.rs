@@ -3,16 +3,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 //
-
-use cgroups_rs::cpuset::CpuSetController;
-use cgroups_rs::error::ErrorKind;
-use cgroups_rs::{Cgroup, CgroupPid};
-
 use std::fs;
+
+use cgroups_rs::fs::cpuset::CpuSetController;
+use cgroups_rs::fs::error::ErrorKind;
+use cgroups_rs::fs::Cgroup;
+use cgroups_rs::CgroupPid;
 
 #[test]
 fn test_cpuset_memory_pressure_root_cg() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_cpuset_memory_pressure_root_cg")).unwrap();
     {
         let cpuset: &CpuSetController = cg.controller_of().unwrap();
@@ -26,7 +26,7 @@ fn test_cpuset_memory_pressure_root_cg() {
 
 #[test]
 fn test_cpuset_set_cpus() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_cpuset_set_cpus")).unwrap();
     {
         let cpuset: &CpuSetController = cg.controller_of().unwrap();
@@ -63,7 +63,7 @@ fn test_cpuset_set_cpus() {
 
 #[test]
 fn test_cpuset_set_cpus_add_task() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_cpuset_set_cpus_add_task/sub-dir")).unwrap();
 
     let cpuset: &CpuSetController = cg.controller_of().unwrap();
