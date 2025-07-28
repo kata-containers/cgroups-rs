@@ -4,13 +4,12 @@
 //
 
 //! Integration tests about the hugetlb subsystem
-use cgroups_rs::memory::{MemController, SetMemory};
-use cgroups_rs::Controller;
-use cgroups_rs::{Cgroup, MaxValue};
+use cgroups_rs::fs::memory::{MemController, SetMemory};
+use cgroups_rs::fs::{Cgroup, Controller, MaxValue};
 
 #[test]
 fn test_disable_oom_killer() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     let cg = Cgroup::new(h, String::from("test_disable_oom_killer")).unwrap();
     {
         let mem_controller: &MemController = cg.controller_of().unwrap();
@@ -35,7 +34,7 @@ fn test_disable_oom_killer() {
 
 #[test]
 fn set_kmem_limit_v1() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     if h.v2() {
         return;
     }
@@ -50,7 +49,7 @@ fn set_kmem_limit_v1() {
 
 #[test]
 fn set_mem_v2() {
-    let h = cgroups_rs::hierarchies::auto();
+    let h = cgroups_rs::fs::hierarchies::auto();
     if !h.v2() {
         return;
     }

@@ -5,7 +5,7 @@ repository = "https://github.com/kata-containers/cgroups-rs"
 keywords = ["linux", "cgroup", "containers", "isolation"]
 categories = ["os", "api-bindings", "os::unix-apis"]
 license = "MIT OR Apache-2.0"
-version = "0.3.5"
+version = "0.4.0"
 authors = ["The Kata Containers community <kata-dev@lists.katacontainers.io>", "Levente Kurusa <lkurusa@acm.org>", "Sam Wilson <tecywiz121@hotmail.com>"]
 edition = "2018"
 homepage = "https://github.com/kata-containers/cgroups-rs"
@@ -13,14 +13,19 @@ readme = "README.md"
 
 [dependencies]
 log = "0.4"
-regex = "1.1"
 nix = { version = "0.25.0", default-features = false, features = ["event", "fs", "process"] }
 libc = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "1"
+oci-spec = { version = "0.8.1", optional = true }
+zbus = "5.8"
+bit-vec = "0.6"
 
 [dev-dependencies]
 libc = "0.2.76"
+rand = "0.8"
+nix = "0.25"
 
 [features]
 default = []
+oci = ["oci-spec"]

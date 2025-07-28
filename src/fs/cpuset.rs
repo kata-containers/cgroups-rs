@@ -13,11 +13,11 @@ use log::*;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::{read_string_from, read_u64_from};
-use crate::{
+use crate::fs::{read_string_from, read_u64_from};
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, CpuResources, Resources, Subsystem,
 };
 
@@ -591,7 +591,7 @@ impl CpuSetController {
 
 #[cfg(test)]
 mod tests {
-    use crate::cpuset;
+    use crate::fs::cpuset;
     #[test]
     fn test_parse_range() {
         let test_cases = vec![
@@ -602,7 +602,7 @@ mod tests {
             "1,2,3,4".to_string(),
             "1-5,6-7,8-9".to_string(),
         ];
-        let expecteds = vec![
+        let expecteds = [
             vec![(1, 1), (2, 2), (4, 6), (9, 9)],
             vec![],
             vec![(1, 1)],

@@ -11,11 +11,11 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::{read_string_from, read_u64_from};
-use crate::{
+use crate::fs::{read_string_from, read_u64_from};
+use crate::fs::{
     BlkIoResources, ControllIdentifier, ControllerInternal, Controllers, CustomizedAttribute,
     Resources, Subsystem,
 };
@@ -181,13 +181,14 @@ fn parse_io_stat(s: String) -> Vec<IoStat> {
 
 fn parse_io_service_total(s: String) -> Result<u64> {
     s.lines()
-        .filter(|x| x.split_whitespace().count() == 2)
-        .fold(Err(Error::new(ParseError)), |_, x| {
-            match x.split_whitespace().collect::<Vec<_>>().as_slice() {
-                ["Total", val] => val.parse::<u64>().map_err(|_| Error::new(ParseError)),
-                _ => Err(Error::new(ParseError)),
+        .find_map(|line| {
+            let mut parts = line.split_whitespace();
+            match (parts.next(), parts.next(), parts.next()) {
+                (Some("Total"), Some(val), None) => val.parse::<u64>().ok(),
+                _ => None,
             }
         })
+        .ok_or_else(|| Error::new(ParseError))
 }
 
 fn parse_blkio_data(s: String) -> Result<Vec<BlkIoData>> {
@@ -828,9 +829,9 @@ impl BlkIoController {
 impl CustomizedAttribute for BlkIoController {}
 #[cfg(test)]
 mod test {
-    use crate::blkio::{parse_blkio_data, BlkIoData};
-    use crate::blkio::{parse_io_service, parse_io_service_total, IoService};
-    use crate::error::*;
+    use crate::fs::blkio::{parse_blkio_data, BlkIoData};
+    use crate::fs::blkio::{parse_io_service, parse_io_service_total, IoService};
+    use crate::fs::error::*;
 
     static TEST_VALUE: &str = "\
 8:32 Read 4280320

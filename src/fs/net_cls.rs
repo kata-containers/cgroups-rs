@@ -10,11 +10,11 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::error::ErrorKind::*;
-use crate::error::*;
+use crate::fs::error::ErrorKind::*;
+use crate::fs::error::*;
 
-use crate::read_u64_from;
-use crate::{
+use crate::fs::read_u64_from;
+use crate::fs::{
     ControllIdentifier, ControllerInternal, Controllers, NetworkResources, Resources, Subsystem,
 };
 
