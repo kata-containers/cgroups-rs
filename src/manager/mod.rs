@@ -4,14 +4,15 @@
 //
 
 mod error;
-use std::collections::HashMap;
-
 pub use error::{Error, Result};
 mod fs;
 pub use fs::FsManager;
 mod systemd;
 pub use systemd::SystemdManager;
 mod conv;
+
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 use oci_spec::runtime::LinuxResources;
 
@@ -25,7 +26,7 @@ pub fn is_systemd_cgroup(cgroups_path: &str) -> bool {
 }
 
 /// Manage cgroups designed for OCI containers.
-pub trait Manager: Send + Sync {
+pub trait Manager: Send + Sync + Debug {
     /// Add a process specified by its tgid.
     fn add_proc(&mut self, tgid: CgroupPid) -> Result<()>;
 
