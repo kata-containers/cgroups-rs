@@ -4,22 +4,24 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 //
 
-use zbus::zvariant::Value;
 use zbus::{Error as ZbusError, Result as ZbusResult};
 
 use crate::systemd::dbus::error::{Error, Result};
 use crate::systemd::dbus::proxy::systemd_manager_proxy;
+use crate::systemd::props::{Value, ZbusProperty, ZbusPropertyRef};
 use crate::systemd::{Property, NO_SUCH_UNIT, PIDS, UNIT_MODE_REPLACE};
 use crate::CgroupPid;
 
-pub struct SystemdClient<'a> {
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SystemdClient {
     /// The name of the systemd unit (slice or scope)
     unit: String,
-    props: Vec<Property<'a>>,
+    props: Vec<Property>,
 }
 
-impl<'a> SystemdClient<'a> {
-    pub fn new(unit: &str, props: Vec<Property<'a>>) -> Result<Self> {
+impl SystemdClient {
+    pub fn new(unit: &str, props: Vec<Property>) -> Result<Self> {
         Ok(Self {
             unit: unit.to_string(),
             props,
@@ -27,7 +29,7 @@ impl<'a> SystemdClient<'a> {
     }
 }
 
-impl SystemdClient<'_> {
+impl SystemdClient {
     /// Set the pid to the PIDs property of the unit.
     ///
     /// Append a process ID to the PIDs property of the unit. If not
@@ -40,9 +42,8 @@ impl SystemdClient<'_> {
         for prop in self.props.iter_mut() {
             if prop.0 == PIDS {
                 // If PIDS is already set, we append the new pid to the existing list.
-                if let Value::Array(arr) = &mut prop.1 {
-                    arr.append(pid.pid.into())
-                        .map_err(|_| Error::InvalidProperties)?;
+                if let Value::ArrayU32(arr) = &mut prop.1 {
+                    arr.push(pid.pid as u32);
                     return Ok(());
                 }
                 // Invalid type of PIDs
@@ -51,7 +52,7 @@ impl SystemdClient<'_> {
         }
         // If PIDS is not set, we create a new property.
         self.props
-            .push((PIDS, Value::Array(vec![pid.pid as u32].into())));
+            .push((PIDS.to_string(), vec![pid.pid as u32].into()));
         Ok(())
     }
 
@@ -63,17 +64,22 @@ impl SystemdClient<'_> {
     /// https://www.freedesktop.org/software/systemd/man/latest/systemd.scope.html
     pub fn start(&self) -> Result<()> {
         // PIDs property must be present
-        if !self.props.iter().any(|(k, _)| k == &PIDS) {
+        if !self.props.iter().any(|(k, _)| k == PIDS) {
             return Err(Error::InvalidProperties);
         }
 
         let sys_proxy = systemd_manager_proxy()?;
 
-        let props_borrowed: Vec<(&str, &zbus::zvariant::Value)> =
-            self.props.iter().map(|(k, v)| (*k, v)).collect();
-        let props_borrowed: Vec<&(&str, &Value)> = props_borrowed.iter().collect();
+        let props: Vec<ZbusProperty<'_>> = self
+            .props
+            .iter()
+            .map(|(k, v)| (k.clone(), v.into()))
+            .collect();
+        let props_ref: Vec<ZbusPropertyRef<'_>> =
+            props.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        let props_ref_ref: Vec<&ZbusPropertyRef<'_>> = props_ref.iter().collect();
 
-        sys_proxy.start_transient_unit(&self.unit, UNIT_MODE_REPLACE, &props_borrowed, &[])?;
+        sys_proxy.start_transient_unit(&self.unit, UNIT_MODE_REPLACE, &props_ref_ref, &[])?;
 
         Ok(())
     }
@@ -99,14 +105,13 @@ impl SystemdClient<'_> {
     }
 
     /// Set properties for the unit through dbus `SetUnitProperties`.
-    pub fn set_properties(&mut self, properties: &[Property<'static>]) -> Result<()> {
-        for prop in properties {
-            let new = prop.1.try_clone().map_err(|_| Error::InvalidProperties)?;
+    pub fn set_properties(&mut self, properties: &[Property]) -> Result<()> {
+        for new in properties {
             // Try to update the value first, if fails, append it.
-            if let Some(existing) = self.props.iter_mut().find(|p| p.0 == prop.0) {
-                existing.1 = new;
+            if let Some(existing) = self.props.iter_mut().find(|p| p.0 == new.0) {
+                existing.1 = new.1.clone();
             } else {
-                self.props.push((prop.0, new));
+                self.props.push((new.0.clone(), new.1.clone()));
             }
         }
 
@@ -117,10 +122,15 @@ impl SystemdClient<'_> {
 
         let sys_proxy = systemd_manager_proxy()?;
 
-        let props_borrowed: Vec<(&str, &Value)> = properties.iter().map(|(k, v)| (*k, v)).collect();
-        let props_borrowed: Vec<&(&str, &Value)> = props_borrowed.iter().collect();
+        let props: Vec<ZbusProperty<'_>> = properties
+            .iter()
+            .map(|(k, v)| (k.clone(), v.into()))
+            .collect();
+        let props_ref: Vec<ZbusPropertyRef<'_>> =
+            props.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        let props_ref_ref: Vec<&ZbusPropertyRef<'_>> = props_ref.iter().collect();
 
-        sys_proxy.set_unit_properties(&self.unit, true, &props_borrowed)?;
+        sys_proxy.set_unit_properties(&self.unit, true, &props_ref_ref)?;
 
         Ok(())
     }
@@ -250,7 +260,7 @@ pub mod tests {
 
     fn start_default_cgroup(pid: CgroupPid, unit: &str) -> SystemdClient {
         let mut props = PropertiesBuilder::default_cgroup(TEST_SLICE, unit).build();
-        props.push((PIDS, Value::Array(vec![pid.pid as u32].into())));
+        props.push((PIDS.to_string(), vec![pid.pid as u32].into()));
         let cgroup = SystemdClient::new(unit, props).unwrap();
         // Stop the unit if it exists.
         cgroup.stop().unwrap();
@@ -443,13 +453,14 @@ pub mod tests {
         );
 
         let properties = [(
-            DESCRIPTION,
-            Value::Str("kata-container1 description".into()),
+            DESCRIPTION.to_string(),
+            "kata-container1 description".into(),
         )];
         cgroup.set_properties(&properties).unwrap();
-        assert!(cgroup.props.iter().any(|(k, v)| {
-            k == &DESCRIPTION && v == &Value::Str("kata-container1 description".into())
-        }));
+        assert!(cgroup
+            .props
+            .iter()
+            .any(|(k, v)| { k == DESCRIPTION && v == &"kata-container1 description".into() }));
 
         let output = systemd_show(&cgroup.unit);
         assert!(

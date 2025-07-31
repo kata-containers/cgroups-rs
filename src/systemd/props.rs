@@ -13,7 +13,73 @@ use crate::systemd::{
     TIMEOUT_STOP_USEC, WANTS,
 };
 
-pub type Property<'a> = (&'a str, ZbusValue<'a>);
+pub type Property = (String, Value);
+pub type ZbusProperty<'a> = (String, ZbusValue<'a>);
+pub type ZbusPropertyRef<'a> = (&'a str, &'a ZbusValue<'a>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Value {
+    Bool(bool),
+    U64(u64),
+    ArrayU32(Vec<u32>),
+    ArrayU8(Vec<u8>),
+    String(String),
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(arr: Vec<u8>) -> Self {
+        Value::ArrayU8(arr)
+    }
+}
+
+impl From<Vec<u32>> for Value {
+    fn from(arr: Vec<u32>) -> Self {
+        Value::ArrayU32(arr)
+    }
+}
+
+impl From<u64> for Value {
+    fn from(value: u64) -> Self {
+        Value::U64(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::String(value.to_string())
+    }
+}
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::String(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::Bool(value)
+    }
+}
+
+impl From<Value> for ZbusValue<'_> {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::U64(u) => ZbusValue::U64(u),
+            Value::Bool(b) => ZbusValue::Bool(b),
+            Value::ArrayU8(arr) => ZbusValue::Array(arr.into()),
+            Value::ArrayU32(arr) => ZbusValue::Array(arr.into()),
+            Value::String(s) => ZbusValue::Str(s.into()),
+        }
+    }
+}
+
+impl From<&Value> for ZbusValue<'_> {
+    fn from(value: &Value) -> Self {
+        value.clone().into()
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct PropertiesBuilder {
@@ -112,57 +178,60 @@ impl PropertiesBuilder {
         self
     }
 
-    pub fn build(self) -> Vec<Property<'static>> {
+    pub fn build(self) -> Vec<Property> {
         let mut props = vec![];
 
         if let Some(cpu_accounting) = self.cpu_accounting {
-            props.push((CPU_ACCOUNTING, ZbusValue::Bool(cpu_accounting)));
+            props.push((CPU_ACCOUNTING.to_string(), cpu_accounting.into()));
         }
 
         if let Some(memory_accounting) = self.memory_accounting {
-            props.push((MEMORY_ACCOUNTING, ZbusValue::Bool(memory_accounting)));
+            props.push((MEMORY_ACCOUNTING.to_string(), memory_accounting.into()));
         }
 
         if let Some(task_accounting) = self.task_accounting {
-            props.push((TASKS_ACCOUNTING, ZbusValue::Bool(task_accounting)));
+            props.push((TASKS_ACCOUNTING.to_string(), task_accounting.into()));
         }
 
         if let Some(io_accounting) = self.io_accounting {
             if hierarchies::is_cgroup2_unified_mode() {
-                props.push((IO_ACCOUNTING, ZbusValue::Bool(io_accounting)));
+                props.push((IO_ACCOUNTING.to_string(), io_accounting.into()));
             } else {
-                props.push((BLOCK_IO_ACCOUNTING, ZbusValue::Bool(io_accounting)));
+                props.push((BLOCK_IO_ACCOUNTING.to_string(), io_accounting.into()));
             }
         }
 
         if let Some(default_dependencies) = self.default_dependencies {
-            props.push((DEFAULT_DEPENDENCIES, ZbusValue::Bool(default_dependencies)));
+            props.push((
+                DEFAULT_DEPENDENCIES.to_string(),
+                default_dependencies.into(),
+            ));
         }
 
         if let Some(description) = self.description {
-            props.push((DESCRIPTION, ZbusValue::Str(description.into())));
+            props.push((DESCRIPTION.to_string(), description.into()));
         } else {
-            props.push((DESCRIPTION, ZbusValue::Str(DEFAULT_DESCRIPTION.into())));
+            props.push((DESCRIPTION.to_string(), DEFAULT_DESCRIPTION.into()));
         }
 
         if let Some(wants) = self.wants {
-            props.push((WANTS, ZbusValue::Str(wants.into())));
+            props.push((WANTS.to_string(), wants.into()));
         }
 
         if let Some(slice) = self.slice {
-            props.push((SLICE, ZbusValue::Str(slice.into())));
+            props.push((SLICE.to_string(), slice.into()));
         }
 
         if let Some(delegate) = self.delegate {
-            props.push((DELEGATE, ZbusValue::Bool(delegate)));
+            props.push((DELEGATE.to_string(), delegate.into()));
         }
 
         if let Some(pids) = self.pids {
-            props.push((PIDS, ZbusValue::Array(pids.into())));
+            props.push((PIDS.to_string(), pids.into()));
         }
 
         if let Some(timeout) = self.timeout_stop_usec {
-            props.push((TIMEOUT_STOP_USEC, ZbusValue::U64(timeout)));
+            props.push((TIMEOUT_STOP_USEC.to_string(), timeout.into()));
         }
 
         props

@@ -25,4 +25,7 @@ pub enum Error {
 
     #[error("systemd dbus error: {0}")]
     SystemdDbus(#[from] SystemdDbusError),
+
+    #[error("serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }

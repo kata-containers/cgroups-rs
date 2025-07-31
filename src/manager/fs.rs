@@ -12,6 +12,7 @@ use oci_spec::runtime::{
     LinuxBlockIo, LinuxCpu, LinuxDeviceCgroup, LinuxHugepageLimit, LinuxMemory, LinuxNetwork,
     LinuxPids, LinuxResources,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::fs::blkio::{BlkIoController, BlkIoData, IoService, IoStat};
 use crate::fs::cgroup::UNIFIED_MOUNTPOINT;
@@ -42,7 +43,7 @@ const MOUNTINFO_PATH: &str = "/proc/self/mountinfo";
 ///
 /// This manager deals with `LinuxResources` conformed to the OCI runtime
 /// specification, so that it allows users not to do type conversions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FsManager {
     /// Cgroup subsystem paths read from `/proc/self/cgroup`
     /// - cgroup v1: <subsystem> -> <path>
@@ -55,6 +56,7 @@ pub struct FsManager {
     /// - cgroup v2: "/sys/fs/cgroup/<base>"
     base: String,
     /// Cgroup managed by this manager.
+    #[serde(skip)]
     cgroup: Cgroup,
 }
 
@@ -869,6 +871,11 @@ impl Manager for FsManager {
 
     fn mounts(&self) -> &HashMap<String, String> {
         &self.mounts
+    }
+
+    fn serialize(&self) -> Result<String> {
+        let json = serde_json::to_string(self)?;
+        Ok(json)
     }
 
     fn systemd(&self) -> bool {

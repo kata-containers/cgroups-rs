@@ -4,8 +4,9 @@
 //
 
 use crate::systemd::error::Result;
-use crate::systemd::TASKS_MAX;
+use crate::systemd::props::Value;
+use crate::systemd::{Property, TASKS_MAX};
 
-pub fn max(max: i64) -> Result<(&'static str, u64)> {
-    Ok((TASKS_MAX, max as u64))
+pub fn max(max: i64) -> Result<Property> {
+    Ok((TASKS_MAX.to_string(), Value::U64(max as u64)))
 }

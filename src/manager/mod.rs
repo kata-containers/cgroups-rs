@@ -78,6 +78,9 @@ pub trait Manager: Send + Sync {
     /// mappings of relative paths see "paths()".
     fn mounts(&self) -> &HashMap<String, String>;
 
+    /// Serialize the cgroup manager to a string in the format of JSON.
+    fn serialize(&self) -> Result<String>;
+
     /// Indicate whether the cgroup manager is using systemd.
     fn systemd(&self) -> bool;
 
