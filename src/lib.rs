@@ -34,7 +34,7 @@ pub enum FreezerState {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct CgroupPid {
     /// The process identifier
-    pub pid: u64,
+    pid: u64,
 }
 
 impl From<u64> for CgroupPid {
@@ -46,6 +46,28 @@ impl From<u64> for CgroupPid {
 impl From<&std::process::Child> for CgroupPid {
     fn from(u: &std::process::Child) -> CgroupPid {
         CgroupPid { pid: u.id() as u64 }
+    }
+}
+
+impl From<u32> for CgroupPid {
+    fn from(u: u32) -> CgroupPid {
+        CgroupPid { pid: u as u64 }
+    }
+}
+
+impl From<i32> for CgroupPid {
+    fn from(u: i32) -> CgroupPid {
+        CgroupPid { pid: u as u64 }
+    }
+}
+
+impl CgroupPid {
+    pub fn set(&mut self, pid: u64) {
+        self.pid = pid;
+    }
+
+    pub fn as_raw(&self) -> u64 {
+        self.pid
     }
 }
 
