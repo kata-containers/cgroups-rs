@@ -85,7 +85,7 @@ impl FsManager {
 
 impl FsManager {
     /// Create the cgroups if they are not created yet.
-    pub(crate) fn create_cgroups(&mut self) -> Result<()> {
+    pub fn create_cgroups(&mut self) -> Result<()> {
         if self.exists() {
             return Ok(());
         }
