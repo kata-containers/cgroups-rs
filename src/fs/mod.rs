@@ -5,7 +5,6 @@
 //
 
 #![allow(clippy::unnecessary_unwrap)]
-use log::*;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -265,7 +264,7 @@ pub trait Controller {
     fn apply(&self, res: &Resources) -> Result<()>;
 
     /// Create this controller
-    fn create(&self);
+    fn create(&self) -> Result<()>;
 
     /// Does this controller already exist?
     fn exists(&self) -> bool;
@@ -323,14 +322,14 @@ where
     }
 
     /// Create this controller
-    fn create(&self) {
+    fn create(&self) -> Result<()> {
         self.verify_path()
             .unwrap_or_else(|_| panic!("path should be valid: {:?}", self.path()));
 
-        match ::std::fs::create_dir_all(self.get_path()) {
-            Ok(_) => self.post_create(),
-            Err(e) => warn!("error create_dir: {:?} error: {:?}", self.get_path(), e),
-        }
+        std::fs::create_dir_all(self.get_path())
+            .map_err(|err| Error::with_cause(ErrorKind::FsError, err))?;
+        self.post_create();
+        Ok(())
     }
 
     /// Set notify_on_release

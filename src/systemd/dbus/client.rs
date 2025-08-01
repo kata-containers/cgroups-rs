@@ -248,7 +248,7 @@ pub mod tests {
         String::from_utf8_lossy(&output.stdout).to_string()
     }
 
-    fn start_default_cgroup(pid: CgroupPid, unit: &str) -> SystemdClient {
+    fn start_default_cgroup(pid: CgroupPid, unit: &'_ str) -> SystemdClient<'_> {
         let mut props = PropertiesBuilder::default_cgroup(TEST_SLICE, unit).build();
         props.push((PIDS, Value::Array(vec![pid.pid as u32].into())));
         let cgroup = SystemdClient::new(unit, props).unwrap();
