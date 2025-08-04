@@ -32,7 +32,8 @@ use crate::manager::error::Error;
 use crate::manager::{conv, Manager, Result};
 use crate::stats::{
     BlkioCgroupStats, BlkioStat, CpuAcctStats, CpuCgroupStats, CpuThrottlingStats,
-    HugeTlbCgroupStats, HugeTlbStat, MemoryCgroupStats, MemoryStats, PidsCgroupStats,
+    DeviceCgroupStat, DevicesCgroupStats, HugeTlbCgroupStats, HugeTlbStat, MemoryCgroupStats,
+    MemoryStats, PidsCgroupStats,
 };
 use crate::{CgroupPid, CgroupStats, FreezerState};
 
@@ -727,6 +728,41 @@ impl FsManager {
             })
             .collect()
     }
+
+    fn devices_cgroup_stats(&self) -> DevicesCgroupStats {
+        let controller: &DevicesController = match self.controller() {
+            Ok(controller) => controller,
+            Err(_) => return DevicesCgroupStats::default(),
+        };
+
+        let list = controller
+            .allowed_devices()
+            .map(|devs| {
+                devs.iter()
+                    .map(|dev| DeviceCgroupStat {
+                        dev_type: dev.devtype.to_char().to_string(),
+                        major: dev.major,
+                        minor: dev.minor,
+                        access: {
+                            let mut access = String::new();
+                            if dev.access.contains(&DevicePermissions::Read) {
+                                access.push('r');
+                            }
+                            if dev.access.contains(&DevicePermissions::Write) {
+                                access.push('w');
+                            }
+                            if dev.access.contains(&DevicePermissions::MkNod) {
+                                access.push('m');
+                            }
+                            access
+                        },
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        DevicesCgroupStats { list }
+    }
 }
 
 impl Manager for FsManager {
@@ -862,6 +898,7 @@ impl Manager for FsManager {
             pids: self.pids_cgroup_stats(),
             blkio: self.blkio_cgroup_stats(),
             hugetlb: self.huge_tlb_cgroup_stats(),
+            devices: self.devices_cgroup_stats(),
         }
     }
 
