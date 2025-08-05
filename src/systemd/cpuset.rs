@@ -6,30 +6,31 @@
 use bit_vec::BitVec;
 
 use crate::systemd::error::{Error, Result};
-use crate::systemd::{ALLOWED_CPUS, ALLOWED_MEMORY_NODES, CPUSET_SYSTEMD_VERSION};
+use crate::systemd::props::Value;
+use crate::systemd::{Property, ALLOWED_CPUS, ALLOWED_MEMORY_NODES, CPUSET_SYSTEMD_VERSION};
 
 const BYTE_IN_BITS: usize = 8;
 
 /// Returns the property for cpuset CPUs.
-pub fn cpus(cpus: &str, systemd_version: usize) -> Result<(&'static str, Vec<u8>)> {
+pub fn cpus(cpus: &str, systemd_version: usize) -> Result<Property> {
     if systemd_version < CPUSET_SYSTEMD_VERSION {
         return Err(Error::ObsoleteSystemd);
     }
 
     let mask = convert_list_to_mask(cpus)?;
 
-    Ok((ALLOWED_CPUS, mask))
+    Ok((ALLOWED_CPUS.to_string(), Value::ArrayU8(mask)))
 }
 
 /// Returns the property for cpuset memory nodes.
-pub fn mems(mems: &str, systemd_version: usize) -> Result<(&'static str, Vec<u8>)> {
+pub fn mems(mems: &str, systemd_version: usize) -> Result<Property> {
     if systemd_version < CPUSET_SYSTEMD_VERSION {
         return Err(Error::ObsoleteSystemd);
     }
 
     let mask = convert_list_to_mask(mems)?;
 
-    Ok((ALLOWED_MEMORY_NODES, mask))
+    Ok((ALLOWED_MEMORY_NODES.to_string(), Value::ArrayU8(mask)))
 }
 
 /// Convert cpuset cpus/mems from the string in comma-separated list format

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use oci_spec::runtime::{LinuxCpu, LinuxMemory, LinuxPids, LinuxResources};
-use zbus::zvariant::Value as ZbusValue;
+use serde::{Deserialize, Serialize};
 
 use crate::manager::conv;
 use crate::manager::error::{Error, Result};
@@ -26,18 +26,19 @@ use crate::{CgroupPid, CgroupStats, FreezerState, Manager};
 /// 2: https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
 const DEFAULT_CPU_QUOTA_PERIOD: u64 = 100_000; // 100ms
 
-pub struct SystemdManager<'a> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemdManager {
     /// The name of slice
     slice: String,
     /// The name of unit
     unit: String,
     /// Systemd client
-    systemd_client: SystemdClient<'a>,
+    systemd_client: SystemdClient,
     /// Cgroupfs manager
     fs_manager: FsManager,
 }
 
-impl SystemdManager<'_> {
+impl SystemdManager {
     fn parse_slice_and_unit(path: &str) -> Result<(String, String)> {
         let parts: Vec<&str> = path.split(':').collect();
         if parts.len() != 3 {
@@ -80,7 +81,7 @@ impl SystemdManager<'_> {
     }
 }
 
-impl SystemdManager<'_> {
+impl SystemdManager {
     /// Get the slice name.
     pub fn slice(&self) -> &str {
         &self.slice
@@ -98,13 +99,13 @@ impl SystemdManager<'_> {
         systemd_version: usize,
     ) -> Result<()> {
         if let Some(cpus) = linux_cpu.cpus().as_ref() {
-            let (id, value) = cpuset::cpus(cpus, systemd_version)?;
-            props.push((id, value.into()));
+            let prop = cpuset::cpus(cpus, systemd_version)?;
+            props.push(prop);
         }
 
         if let Some(mems) = linux_cpu.mems().as_ref() {
-            let (id, value) = cpuset::mems(mems, systemd_version)?;
-            props.push((id, value.into()));
+            let prop = cpuset::mems(mems, systemd_version)?;
+            props.push(prop);
         }
 
         Ok(())
@@ -122,16 +123,16 @@ impl SystemdManager<'_> {
             } else {
                 shares
             };
-            let (id, value) = cpu::shares(shares, self.v2())?;
-            props.push((id, value.into()));
+            let prop = cpu::shares(shares, self.v2())?;
+            props.push(prop);
         }
 
         let period = linux_cpu.period().unwrap_or(0);
         let quota = linux_cpu.quota().unwrap_or(0);
 
         if period != 0 {
-            let (id, value) = cpu::period(period, systemd_version)?;
-            props.push((id, value.into()));
+            let prop = cpu::period(period, systemd_version)?;
+            props.push(prop);
         }
 
         if period != 0 || quota != 0 {
@@ -153,8 +154,8 @@ impl SystemdManager<'_> {
                     quota_systemd = (quota_systemd / ms_to_us(10) + 1) * ms_to_us(10);
                 }
             }
-            let (id, value) = cpu::quota(quota_systemd)?;
-            props.push((id, value.into()));
+            let prop = cpu::quota(quota_systemd)?;
+            props.push(prop);
         }
 
         Ok(())
@@ -165,21 +166,21 @@ impl SystemdManager<'_> {
 
         let mem_limit = linux_memory.limit().unwrap_or(0);
         if mem_limit != 0 {
-            let (id, value) = memory::limit(mem_limit, v2)?;
-            props.push((id, value.into()));
+            let prop = memory::limit(mem_limit, v2)?;
+            props.push(prop);
         }
 
         let reservation = linux_memory.reservation().unwrap_or(0);
         if reservation != 0 && v2 {
-            let (id, value) = memory::low(reservation, v2)?;
-            props.push((id, value.into()));
+            let prop = memory::low(reservation, v2)?;
+            props.push(prop);
         }
 
         let memswap_limit = linux_memory.swap().unwrap_or(0);
         if memswap_limit != 0 && v2 {
             let memswap_limit = conv::memory_swap_to_cgroup_v2(memswap_limit, mem_limit)?;
-            let (id, value) = memory::swap(memswap_limit, v2)?;
-            props.push((id, value.into()));
+            let prop = memory::swap(memswap_limit, v2)?;
+            props.push(prop);
         }
 
         Ok(())
@@ -188,8 +189,8 @@ impl SystemdManager<'_> {
     fn set_pids(&self, props: &mut Vec<Property>, linux_pids: &LinuxPids) -> Result<()> {
         let limit = linux_pids.limit();
         if limit == -1 || limit > 0 {
-            let (id, value) = pids::max(limit)?;
-            props.push((id, value.into()));
+            let prop = pids::max(limit)?;
+            props.push(prop);
         }
 
         Ok(())
@@ -205,13 +206,13 @@ impl SystemdManager<'_> {
     /// ```
     pub fn set_term_timeout(&mut self, timeout_in_sec: u64) -> Result<()> {
         let timeout_in_usec = timeout_in_sec * 1_000_000;
-        let prop = (TIMEOUT_STOP_USEC, ZbusValue::U64(timeout_in_usec));
+        let prop = (TIMEOUT_STOP_USEC.to_string(), timeout_in_usec.into());
         self.systemd_client.set_properties(&[prop])?;
         Ok(())
     }
 }
 
-impl Manager for SystemdManager<'_> {
+impl Manager for SystemdManager {
     fn add_proc(&mut self, pid: CgroupPid) -> Result<()> {
         if !self.systemd_client.exists() {
             self.systemd_client.set_pid_prop(pid)?;
@@ -304,6 +305,11 @@ impl Manager for SystemdManager<'_> {
         self.fs_manager.mounts()
     }
 
+    fn serialize(&self) -> Result<String> {
+        let json = serde_json::to_string(self)?;
+        Ok(json)
+    }
+
     fn systemd(&self) -> bool {
         true
     }
@@ -377,7 +383,7 @@ mod tests {
         )
     }
 
-    fn new_systemd_manager<'a>() -> SystemdManager<'a> {
+    fn new_systemd_manager() -> SystemdManager {
         let (slice, scope_prefix, name) = new_cgroups_path();
         SystemdManager::new(&format!("{}:{}:{}", slice, scope_prefix, name)).unwrap()
     }

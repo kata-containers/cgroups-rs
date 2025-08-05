@@ -4,14 +4,15 @@
 //
 
 mod error;
-use std::collections::HashMap;
-
 pub use error::{Error, Result};
 mod fs;
 pub use fs::FsManager;
 mod systemd;
 pub use systemd::SystemdManager;
 mod conv;
+
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 use oci_spec::runtime::LinuxResources;
 
@@ -25,7 +26,7 @@ pub fn is_systemd_cgroup(cgroups_path: &str) -> bool {
 }
 
 /// Manage cgroups designed for OCI containers.
-pub trait Manager: Send + Sync {
+pub trait Manager: Send + Sync + Debug {
     /// Add a process specified by its tgid.
     fn add_proc(&mut self, tgid: CgroupPid) -> Result<()>;
 
@@ -77,6 +78,9 @@ pub trait Manager: Send + Sync {
     /// path would be something like "{mountpoint}/{relative_path}". The
     /// mappings of relative paths see "paths()".
     fn mounts(&self) -> &HashMap<String, String>;
+
+    /// Serialize the cgroup manager to a string in the format of JSON.
+    fn serialize(&self) -> Result<String>;
 
     /// Indicate whether the cgroup manager is using systemd.
     fn systemd(&self) -> bool;

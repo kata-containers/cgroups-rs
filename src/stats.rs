@@ -13,6 +13,7 @@ pub struct CgroupStats {
     pub pids: PidsCgroupStats,
     pub blkio: BlkioCgroupStats,
     pub hugetlb: HugeTlbCgroupStats,
+    pub devices: DevicesCgroupStats,
 }
 
 #[derive(Debug, Default)]
@@ -153,4 +154,17 @@ pub struct HugeTlbStat {
     pub usage: u64,
     pub max_usage: u64,
     pub fail_cnt: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct DeviceCgroupStat {
+    pub dev_type: String,
+    pub major: i64,
+    pub minor: i64,
+    pub access: String,
+}
+
+#[derive(Debug, Default)]
+pub struct DevicesCgroupStats {
+    pub list: Vec<DeviceCgroupStat>,
 }
