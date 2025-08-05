@@ -131,7 +131,10 @@ impl FsManager {
     }
 
     fn set_cpuset(&self, linux_cpu: &LinuxCpu) -> Result<()> {
-        let controller: &CpuSetController = self.controller()?;
+        let controller: &CpuSetController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         if let Some(cpus) = linux_cpu.cpus() {
             controller.set_cpus(cpus)?;
@@ -145,7 +148,10 @@ impl FsManager {
     }
 
     fn set_cpu(&self, linux_cpu: &LinuxCpu) -> Result<()> {
-        let controller: &CpuController = self.controller()?;
+        let controller: &CpuController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         if let Some(shares) = linux_cpu.shares() {
             let shares = if self.v2() {
@@ -213,7 +219,10 @@ impl FsManager {
     }
 
     fn set_memory_v1(&self, linux_memory: &LinuxMemory) -> Result<()> {
-        let controller: &MemController = self.controller()?;
+        let controller: &MemController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         let mem_limit = linux_memory.limit().unwrap_or(0);
         let memswap_limit = linux_memory.swap().unwrap_or(0);
@@ -240,7 +249,10 @@ impl FsManager {
     }
 
     fn set_memory_v2(&self, linux_memory: &LinuxMemory) -> Result<()> {
-        let controller: &MemController = self.controller()?;
+        let controller: &MemController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         if linux_memory.reservation().is_none()
             && linux_memory.limit().is_none()
@@ -300,7 +312,11 @@ impl FsManager {
     }
 
     fn set_pids(&self, pids: &LinuxPids) -> Result<()> {
-        let controller: &PidController = self.controller()?;
+        let controller: &PidController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
+
         let value = if pids.limit() > 0 {
             MaxValue::Value(pids.limit())
         } else {
@@ -312,7 +328,10 @@ impl FsManager {
     }
 
     fn set_blkio(&self, blkio: &LinuxBlockIo) -> Result<()> {
-        let controller: &BlkIoController = self.controller()?;
+        let controller: &BlkIoController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         if let Some(weight) = blkio.weight() {
             controller.set_weight(weight as u64)?;
@@ -375,7 +394,10 @@ impl FsManager {
     }
 
     fn set_hugepages(&self, hugepage_limits: &[LinuxHugepageLimit]) -> Result<()> {
-        let controller: &HugeTlbController = self.controller()?;
+        let controller: &HugeTlbController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         for limit in hugepage_limits.iter() {
             // ignore not supported page size
@@ -392,16 +414,18 @@ impl FsManager {
 
     fn set_network(&self, network: &LinuxNetwork) -> Result<()> {
         if let Some(class_id) = network.class_id() {
-            let controller: &NetClsController = self.controller()?;
-            controller.set_class(class_id as u64)?;
+            if let Ok(controller) = self.controller::<NetClsController>() {
+                controller.set_class(class_id as u64)?;
+            }
         }
 
         if let Some(priorities) = network.priorities() {
-            let controller: &NetPrioController = self.controller()?;
-            for priority in priorities.iter() {
-                let eif = priority.name();
-                let prio = priority.priority() as u64;
-                controller.set_if_prio(eif, prio)?;
+            if let Ok(controller) = self.controller::<NetPrioController>() {
+                for priority in priorities.iter() {
+                    let eif = priority.name();
+                    let prio = priority.priority() as u64;
+                    controller.set_if_prio(eif, prio)?;
+                }
             }
         }
 
@@ -409,7 +433,10 @@ impl FsManager {
     }
 
     fn set_devices(&self, devices: &[LinuxDeviceCgroup]) -> Result<()> {
-        let controller: &DevicesController = self.controller()?;
+        let controller: &DevicesController = match self.controller() {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
 
         for device in devices.iter() {
             let devtype =
