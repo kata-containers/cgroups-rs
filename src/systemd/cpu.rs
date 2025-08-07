@@ -3,10 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 //
 
-use crate::systemd::error::{Error, Result};
-use crate::systemd::{
-    CPU_QUOTA_PERIOD_US, CPU_QUOTA_PER_SEC_US, CPU_SHARES, CPU_SYSTEMD_VERSION, CPU_WEIGHT,
-};
+use crate::systemd::error::Result;
+use crate::systemd::{CPU_QUOTA_PERIOD_US, CPU_QUOTA_PER_SEC_US, CPU_SHARES, CPU_WEIGHT};
 
 /// Returns the property for CPU shares.
 ///
@@ -21,11 +19,7 @@ pub fn shares(shares: u64, v2: bool) -> Result<(&'static str, u64)> {
 }
 
 /// Returns the property for CPU period.
-pub fn period(period: u64, systemd_version: usize) -> Result<(&'static str, u64)> {
-    if systemd_version < CPU_SYSTEMD_VERSION {
-        return Err(Error::ObsoleteSystemd);
-    }
-
+pub fn period(period: u64) -> Result<(&'static str, u64)> {
     Ok((CPU_QUOTA_PERIOD_US, period))
 }
 

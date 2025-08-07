@@ -12,7 +12,4 @@ pub enum Error {
 
     #[error("dbus error: {0}")]
     Dbus(#[from] zbus::Error),
-
-    #[error("corrupted systemd version: {0}")]
-    CorruptedSystemdVersion(String),
 }

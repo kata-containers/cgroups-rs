@@ -20,6 +20,3 @@ pub const DEFAULT_SLICE: &str = "system.slice";
 
 pub const SLICE_SUFFIX: &str = ".slice";
 pub const SCOPE_SUFFIX: &str = ".scope";
-
-pub const CPU_SYSTEMD_VERSION: usize = 242;
-pub const CPUSET_SYSTEMD_VERSION: usize = 244;

@@ -143,21 +143,6 @@ impl SystemdClient<'_> {
         Ok(())
     }
 
-    /// Get the systemd version.
-    pub fn systemd_version(&self) -> Result<usize> {
-        let sys_proxy = systemd_manager_proxy()?;
-
-        // Parse 249 from "249.11-0ubuntu3.16"
-        let version = sys_proxy.version()?;
-        let version = version
-            .split('.')
-            .next()
-            .and_then(|v| v.parse::<usize>().ok())
-            .ok_or(Error::CorruptedSystemdVersion(version))?;
-
-        Ok(version)
-    }
-
     /// Check if the unit exists.
     pub fn exists(&self) -> bool {
         let sys_proxy = match systemd_manager_proxy() {
@@ -216,7 +201,7 @@ pub mod tests {
     use crate::systemd::props::PropertiesBuilder;
     use crate::systemd::utils::expand_slice;
     use crate::systemd::{DEFAULT_DESCRIPTION, DESCRIPTION, PIDS};
-    use crate::tests::{spawn_sleep_inf, spawn_yes, systemd_version};
+    use crate::tests::{spawn_sleep_inf, spawn_yes};
 
     const TEST_SLICE: &str = "cgroupsrs-test.slice";
 
@@ -502,19 +487,6 @@ pub mod tests {
 
         stop_cgroup(&cgroup);
         child.wait().unwrap();
-    }
-
-    #[test]
-    fn test_systemd_version() {
-        skip_if_no_systemd!();
-
-        let unit = test_unit();
-        let props = PropertiesBuilder::default_cgroup(TEST_SLICE, &unit).build();
-        let cgroup = SystemdClient::new(&unit, props).unwrap();
-        let version = cgroup.systemd_version().unwrap();
-
-        let expected_version = systemd_version().unwrap();
-        assert_eq!(version, expected_version, "Systemd version mismatch");
     }
 
     #[test]
