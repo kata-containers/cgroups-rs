@@ -6,6 +6,8 @@
 
 //! This module handles cgroup operations. Start here!
 
+use log::warn;
+
 use crate::fs::error::ErrorKind::*;
 use crate::fs::error::*;
 
@@ -84,9 +86,9 @@ impl Cgroup {
         if self.hier.v2() {
             create_v2_cgroup(self.hier.root(), &self.path, &self.specified_controllers)
         } else {
-            for subsystem in &self.subsystems {
-                subsystem.to_controller().create();
-            }
+            self.subsystems
+                .iter()
+                .try_for_each(|subsystem| subsystem.to_controller().create())?;
             Ok(())
         }
     }
@@ -556,6 +558,7 @@ fn create_v2_cgroup(
         // create dir, need not check if is a file or directory
         if !fp.exists() {
             if let Err(e) = std::fs::create_dir(fp.clone()) {
+                warn!("Failed to create cgroup directory {}: {}", fp.display(), e);
                 return Err(Error::with_cause(ErrorKind::FsError, e));
             }
         }
