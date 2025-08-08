@@ -10,9 +10,6 @@ pub enum Error {
     #[error("invalid argument")]
     InvalidArgument,
 
-    #[error("obsolete systemd, please upgrade your systemd")]
-    ObsoleteSystemd,
-
     #[error("resource not supported by cgroups v1")]
     CgroupsV1NotSupported,
 }

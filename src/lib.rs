@@ -72,22 +72,11 @@ pub mod tests {
         child
     }
 
-    pub fn systemd_version() -> Option<usize> {
+    pub fn systemd_version() -> Option<String> {
         let output = Command::new("systemd").arg("--version").output().ok()?; // Return None if command execution fails
-
         if !output.status.success() {
             return None;
         }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // The first line is typically like "systemd 254 (254.5-1-arch)"
-        let first_line = stdout.lines().next()?;
-        let mut words = first_line.split_whitespace();
-
-        words.next()?; // Skip the "systemd" word
-        let version_str = words.next()?; // The version number as string
-
-        version_str.parse::<usize>().ok()
+        Some(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }

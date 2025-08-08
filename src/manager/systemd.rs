@@ -91,31 +91,21 @@ impl SystemdManager<'_> {
         &self.unit
     }
 
-    fn set_cpuset(
-        &self,
-        props: &mut Vec<Property>,
-        linux_cpu: &LinuxCpu,
-        systemd_version: usize,
-    ) -> Result<()> {
+    fn set_cpuset(&self, props: &mut Vec<Property>, linux_cpu: &LinuxCpu) -> Result<()> {
         if let Some(cpus) = linux_cpu.cpus().as_ref() {
-            let (id, value) = cpuset::cpus(cpus, systemd_version)?;
+            let (id, value) = cpuset::cpus(cpus)?;
             props.push((id, value.into()));
         }
 
         if let Some(mems) = linux_cpu.mems().as_ref() {
-            let (id, value) = cpuset::mems(mems, systemd_version)?;
+            let (id, value) = cpuset::mems(mems)?;
             props.push((id, value.into()));
         }
 
         Ok(())
     }
 
-    fn set_cpu(
-        &self,
-        props: &mut Vec<Property>,
-        linux_cpu: &LinuxCpu,
-        systemd_version: usize,
-    ) -> Result<()> {
+    fn set_cpu(&self, props: &mut Vec<Property>, linux_cpu: &LinuxCpu) -> Result<()> {
         if let Some(shares) = linux_cpu.shares() {
             let shares = if self.v2() {
                 conv::cpu_shares_to_cgroup_v2(shares)
@@ -130,7 +120,7 @@ impl SystemdManager<'_> {
         let quota = linux_cpu.quota().unwrap_or(0);
 
         if period != 0 {
-            let (id, value) = cpu::period(period, systemd_version)?;
+            let (id, value) = cpu::period(period)?;
             props.push((id, value.into()));
         }
 
@@ -272,11 +262,9 @@ impl Manager for SystemdManager<'_> {
     fn set(&mut self, resources: &LinuxResources) -> Result<()> {
         let mut props = vec![];
 
-        let systemd_version = self.systemd_client.systemd_version()?;
-
         if let Some(linux_cpu) = resources.cpu() {
-            self.set_cpuset(&mut props, linux_cpu, systemd_version)?;
-            self.set_cpu(&mut props, linux_cpu, systemd_version)?;
+            self.set_cpuset(&mut props, linux_cpu)?;
+            self.set_cpu(&mut props, linux_cpu)?;
         }
 
         if let Some(linux_memory) = resources.memory() {

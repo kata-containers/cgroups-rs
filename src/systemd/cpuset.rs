@@ -6,29 +6,19 @@
 use bit_vec::BitVec;
 
 use crate::systemd::error::{Error, Result};
-use crate::systemd::{ALLOWED_CPUS, ALLOWED_MEMORY_NODES, CPUSET_SYSTEMD_VERSION};
+use crate::systemd::{ALLOWED_CPUS, ALLOWED_MEMORY_NODES};
 
 const BYTE_IN_BITS: usize = 8;
 
 /// Returns the property for cpuset CPUs.
-pub fn cpus(cpus: &str, systemd_version: usize) -> Result<(&'static str, Vec<u8>)> {
-    if systemd_version < CPUSET_SYSTEMD_VERSION {
-        return Err(Error::ObsoleteSystemd);
-    }
-
+pub fn cpus(cpus: &str) -> Result<(&'static str, Vec<u8>)> {
     let mask = convert_list_to_mask(cpus)?;
-
     Ok((ALLOWED_CPUS, mask))
 }
 
 /// Returns the property for cpuset memory nodes.
-pub fn mems(mems: &str, systemd_version: usize) -> Result<(&'static str, Vec<u8>)> {
-    if systemd_version < CPUSET_SYSTEMD_VERSION {
-        return Err(Error::ObsoleteSystemd);
-    }
-
+pub fn mems(mems: &str) -> Result<(&'static str, Vec<u8>)> {
     let mask = convert_list_to_mask(mems)?;
-
     Ok((ALLOWED_MEMORY_NODES, mask))
 }
 
