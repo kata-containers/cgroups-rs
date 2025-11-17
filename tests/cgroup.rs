@@ -273,3 +273,38 @@ fn test_cgroup_v2() {
 
     cg.delete().unwrap();
 }
+
+#[test]
+fn test_delete_on_drop_disabled() {
+    let cgroup_name = "test_delete_on_drop_disabled";
+
+    {
+        let h = cgroups_rs::fs::hierarchies::auto();
+        let cg = Cgroup::new(h, String::from(cgroup_name)).unwrap();
+        assert!(cg.exists());
+    }
+
+    // Cgroup should still exist after drop since delete_on_drop wasn't set
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::load(h, String::from(cgroup_name));
+    assert!(cg.exists());
+
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_delete_on_drop_enabled() {
+    let cgroup_name = "test_delete_on_drop_enabled";
+
+    {
+        let h = cgroups_rs::fs::hierarchies::auto();
+        let mut cg = Cgroup::new(h, String::from(cgroup_name)).unwrap();
+        cg.delete_on_drop(true);
+        assert!(cg.exists());
+    }
+
+    // Cgroup should not exist after drop since delete_on_drop was set
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::load(h, String::from(cgroup_name));
+    assert!(!cg.exists());
+}

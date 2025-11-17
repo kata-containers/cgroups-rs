@@ -45,6 +45,10 @@ pub struct Cgroup {
 
     /// List of controllers specifically enabled in the control group.
     specified_controllers: Option<Vec<String>>,
+
+    /// Whether to automatically delete the cgroup when this struct is dropped.
+    /// Defaults to false.
+    delete_on_drop: bool,
 }
 
 impl Clone for Cgroup {
@@ -54,6 +58,7 @@ impl Clone for Cgroup {
             hier: crate::fs::hierarchies::auto(),
             path: self.path.clone(),
             specified_controllers: None,
+            delete_on_drop: self.delete_on_drop,
         }
     }
 }
@@ -65,6 +70,16 @@ impl Default for Cgroup {
             hier: crate::fs::hierarchies::auto(),
             path: "".to_string(),
             specified_controllers: None,
+            delete_on_drop: false,
+        }
+    }
+}
+
+impl Drop for Cgroup {
+    fn drop(&mut self) {
+        if self.delete_on_drop {
+            // Ignore errors during drop to avoid panicking
+            let _ = self.delete();
         }
     }
 }
@@ -77,6 +92,31 @@ impl Cgroup {
     /// Return the path the cgroup is located at.
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// Set whether to automatically delete the cgroup when this struct is dropped.
+    ///
+    /// When set to `true`, the cgroup will be deleted when the `Cgroup` instance
+    /// is dropped. This is useful for temporary cgroups that should be cleaned up
+    /// automatically.
+    ///
+    /// Note that deletion may not always succeed. See [`Cgroup::delete`] for more
+    /// details.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use cgroups_rs::fs::Cgroup;
+    /// use cgroups_rs::fs::hierarchies;
+    ///
+    /// let h = hierarchies::auto();
+    /// let mut cg = Cgroup::new(h, "temporary_cgroup").unwrap();
+    /// cg.delete_on_drop(true);
+    /// drop(cg);
+    /// // cgroup should be deleted by this point.
+    /// ```
+    pub fn delete_on_drop(&mut self, delete: bool) {
+        self.delete_on_drop = delete;
     }
 
     /// Create this control group.
@@ -151,6 +191,7 @@ impl Cgroup {
             subsystems,
             hier,
             specified_controllers: None,
+            delete_on_drop: false,
         }
     }
 
@@ -178,6 +219,7 @@ impl Cgroup {
             subsystems,
             hier,
             specified_controllers: Some(specified_controllers),
+            delete_on_drop: false,
         }
     }
 
@@ -222,6 +264,7 @@ impl Cgroup {
             hier,
             path: path.to_str().unwrap().to_string(),
             specified_controllers: None,
+            delete_on_drop: false,
         }
     }
 
