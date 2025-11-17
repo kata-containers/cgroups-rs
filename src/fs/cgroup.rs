@@ -78,7 +78,7 @@ impl Default for Cgroup {
 impl Drop for Cgroup {
     fn drop(&mut self) {
         if self.delete_on_drop {
-            // Ignore errors during drop to avoid panicking
+            // N.B.: This may silently fail.
             let _ = self.delete();
         }
     }
