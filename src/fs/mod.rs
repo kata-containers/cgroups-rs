@@ -164,19 +164,9 @@ mod sealed {
             false
         }
 
-        fn verify_path(&self) -> Result<()> {
-            if self.get_path().starts_with(self.get_base()) {
-                Ok(())
-            } else {
-                Err(Error::new(ErrorKind::InvalidPath))
-            }
-        }
-
         fn open_path(&self, p: &str, w: bool) -> Result<File> {
             let mut path = self.get_path().clone();
             path.push(p);
-
-            self.verify_path()?;
 
             if w {
                 match File::create(&path) {
@@ -213,10 +203,6 @@ mod sealed {
 
         #[doc(hidden)]
         fn path_exists(&self, p: &str) -> bool {
-            if self.verify_path().is_err() {
-                return false;
-            }
-
             std::path::Path::new(p).exists()
         }
     }
@@ -323,9 +309,6 @@ where
 
     /// Create this controller
     fn create(&self) -> Result<()> {
-        self.verify_path()
-            .unwrap_or_else(|_| panic!("path should be valid: {:?}", self.path()));
-
         std::fs::create_dir_all(self.get_path())
             .map_err(|err| Error::with_cause(ErrorKind::FsError, err))?;
         self.post_create();
