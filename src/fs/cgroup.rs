@@ -84,9 +84,9 @@ impl Cgroup {
         if self.hier.v2() {
             create_v2_cgroup(self.hier.root(), &self.path, &self.specified_controllers)
         } else {
-            for subsystem in &self.subsystems {
-                subsystem.to_controller().create();
-            }
+            self.subsystems
+                .iter()
+                .try_for_each(|subsystem| subsystem.to_controller().create())?;
             Ok(())
         }
     }
