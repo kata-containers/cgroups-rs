@@ -1,15 +1,14 @@
-# cgroups-rs ![Build](https://travis-ci.org/kata-containers/cgroups-rs.svg?branch=master)
-Native Rust library for managing control groups under Linux
+# cgroups-rs
 
-Both v1 and v2 of cgroups are supported.
+[![Crate](https://img.shields.io/crates/v/cgroups-rs.svg)](https://crates.io/crates/cgroups-rs)
 
-# Examples
+Native Rust library for managing Linux control groups. Supports both cgroups v1 and v2.
 
-## Create a control group using the builder pattern
+## Examples
 
-``` rust
+### Create a control group using the builder pattern
 
-
+```rust
 use cgroups_rs::*;
 use cgroups_rs::cgroup_builder::*;
 
@@ -44,7 +43,7 @@ cg.delete();
 // major version change.
 ```
 
-# Disclaimer
+## Disclaimer
 
 This crate is licensed under:
 
