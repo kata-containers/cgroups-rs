@@ -11,6 +11,8 @@ pub mod manager;
 pub use manager::{FsManager, Manager, SystemdManager};
 pub mod stats;
 pub use stats::CgroupStats;
+
+#[cfg(feature = "systemd")]
 pub mod systemd;
 
 /// The maximum value for CPU shares in cgroups v1
