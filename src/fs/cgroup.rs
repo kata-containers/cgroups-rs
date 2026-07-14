@@ -550,18 +550,18 @@ fn create_v2_cgroup(
     // path: "a/b/c"
     let elements = path.split('/').collect::<Vec<&str>>();
     let last_index = elements.len() - 1;
+    // Build up the directory hierarchy element by element, enabling the controllers for all
+    // parents along the way.
     for (i, ele) in elements.iter().enumerate() {
         // ROOT/a
         fp.push(ele);
-        // create dir, need not check if is a file or directory
-        if !fp.exists() {
-            if let Err(e) = std::fs::create_dir(fp.clone()) {
-                return Err(Error::with_cause(ErrorKind::FsError, e));
-            }
+        // create dir if necessary
+        if let Err(e) = std::fs::create_dir_all(fp.clone()) {
+            return Err(Error::with_cause(ErrorKind::FsError, e));
         }
 
         if i < last_index {
-            // enable controllers for substree
+            // enable controllers for subtree
             enable_controllers(&controllers, &fp);
         }
     }
