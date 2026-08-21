@@ -90,3 +90,37 @@ fn test_cpuset_set_cpus_add_task() {
 
     cg.delete().unwrap();
 }
+
+#[test]
+fn test_cpuset_effective_cpus() {
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::new(h, String::from("test_cpuset_effective_cpus")).unwrap();
+    {
+        let cpuset: &CpuSetController = cg.controller_of().unwrap();
+
+        // Set cpus to 0
+        let r = cpuset.set_cpus("0");
+        assert!(r.is_ok());
+
+        // Read back and verify effective_cpus is populated
+        let set = cpuset.cpuset();
+
+        if cg.v2() {
+            // On v2, effective_cpus should be populated after setting cpus
+            // This tests that we're reading the correct file: cpuset.cpus.effective
+            assert!(
+                !set.effective_cpus.is_empty(),
+                "effective_cpus should not be empty on cgroup v2 after setting cpus"
+            );
+            assert_eq!((0, 0), set.effective_cpus[0]);
+        } else {
+            // On v1, effective_cpus should also work
+            // This tests that we're reading the correct file: cpuset.effective_cpus
+            assert!(
+                !set.effective_cpus.is_empty(),
+                "effective_cpus should not be empty on cgroup v1"
+            );
+        }
+    }
+    cg.delete().unwrap();
+}
