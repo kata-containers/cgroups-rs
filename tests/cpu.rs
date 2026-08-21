@@ -59,3 +59,36 @@ fn test_cfs_quota_and_periods() {
 
     cg.delete().unwrap();
 }
+
+#[test]
+fn test_cfs_burst() {
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::new(h, String::from("test_cfs_burst")).unwrap();
+
+    let cpu_controller: &CpuController = cg.controller_of().unwrap();
+
+    // The default burst is 0 on both v1 (cpu.cfs_burst_us) and v2
+    // (cpu.max.burst). Skip on kernels without burst support (the file
+    // does not exist on kernels < 5.14).
+    if cpu_controller.cfs_burst().is_err() {
+        eprintln!("skipping test_cfs_burst: cpu.max.burst not supported");
+        cg.delete().unwrap();
+        return;
+    }
+
+    // verify default value
+    let current_burst = cpu_controller.cfs_burst().unwrap();
+    assert_eq!(0, current_burst);
+
+    // case 1 set burst
+    cpu_controller.set_cfs_burst(100000).unwrap();
+    let current_burst = cpu_controller.cfs_burst().unwrap();
+    assert_eq!(100000, current_burst);
+
+    // case 2 reset burst to 0
+    cpu_controller.set_cfs_burst(0).unwrap();
+    let current_burst = cpu_controller.cfs_burst().unwrap();
+    assert_eq!(0, current_burst);
+
+    cg.delete().unwrap();
+}

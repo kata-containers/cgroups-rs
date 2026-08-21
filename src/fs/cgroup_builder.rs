@@ -230,6 +230,7 @@ impl CpuResourceBuilder {
     gen_setter!(cpu, CpuController, set_shares, shares, u64);
     gen_setter!(cpu, CpuController, set_cfs_quota, quota, i64);
     gen_setter!(cpu, CpuController, set_cfs_period, period, u64);
+    gen_setter!(cpu, CpuController, set_cfs_burst, burst, u64);
     gen_setter!(cpu, CpuController, set_rt_runtime, realtime_runtime, i64);
     gen_setter!(cpu, CpuController, set_rt_period, realtime_period, u64);
 

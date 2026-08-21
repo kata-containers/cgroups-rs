@@ -163,6 +163,10 @@ impl FsManager {
             controller.set_cfs_period(period)?;
         }
 
+        if let Some(burst) = linux_cpu.burst() {
+            controller.set_cfs_burst(burst)?;
+        }
+
         if let Some(rt_runtime) = linux_cpu.realtime_runtime() {
             controller.set_rt_runtime(rt_runtime)?;
         }

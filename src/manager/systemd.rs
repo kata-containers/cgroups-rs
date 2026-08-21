@@ -147,6 +147,10 @@ impl SystemdManager<'_> {
             props.push((id, value.into()));
         }
 
+        // TODO: burst (cpu.max.burst / cpu.cfs_burst_us) and rt properties
+        // (realtime_runtime / realtime_period) are not yet supported, as
+        // systemd does not expose corresponding D-Bus properties for them.
+
         Ok(())
     }
 

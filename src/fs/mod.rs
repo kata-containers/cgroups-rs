@@ -599,6 +599,8 @@ pub struct CpuResources {
     pub quota: Option<i64>,
     /// Period of time in microseconds.
     pub period: Option<u64>,
+    /// cgroup v2 = `cpu.max.burst`,v1 = `cpu.cfs_burst_us`.
+    pub burst: Option<u64>,
     /// This is currently a no-operation.
     pub realtime_runtime: Option<i64>,
     /// This is currently a no-operation.
