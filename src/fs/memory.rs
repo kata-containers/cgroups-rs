@@ -442,7 +442,7 @@ pub struct Memory {
     /// control group's tasks.
     ///
     /// Note that setting this to zero does *not* prevent swapping, use `mlock(2)` for that
-    /// purpose.
+    /// purpose. Always 0 on v2, which has no per-cgroup swappiness knob.
     pub swappiness: u64,
     /// If set, then under OOM conditions, the kernel will try to reclaim memory from the children
     /// of the offending process too. By default, this is not allowed.
@@ -584,6 +584,17 @@ impl MemController {
             max: Some(MaxValue::default()),
             min: Some(MaxValue::Value(0)),
         });
+        let mut stat = self
+            .open_path("memory.stat", false)
+            .and_then(read_string_from)
+            .and_then(parse_memory_stat)
+            .unwrap_or_default();
+        let swap = self
+            .open_path("memory.swap.current", false)
+            .and_then(read_u64_from)
+            .unwrap_or(0);
+        stat.swap = swap;
+        stat.raw.insert("swap".to_string(), swap);
 
         Memory {
             fail_cnt: 0,
@@ -600,15 +611,9 @@ impl MemController {
             numa_stat: NumaStat::default(),
             oom_control: OomControl::default(),
             soft_limit_in_bytes: set.low.unwrap().to_i64(),
-            stat: self
-                .open_path("memory.stat", false)
-                .and_then(read_string_from)
-                .and_then(parse_memory_stat)
-                .unwrap_or_default(),
-            swappiness: self
-                .open_path("memory.swap.current", false)
-                .and_then(read_u64_from)
-                .unwrap_or(0),
+            stat,
+            // v1's memory.swappiness has no v2 counterpart, so this is always reported as 0.
+            swappiness: 0,
             use_hierarchy: 0,
         }
     }
@@ -943,11 +948,14 @@ impl MemController {
     /// group.
     ///
     /// Note that a value of zero does not imply that the process will not be swapped out.
+    ///
+    /// Fails with `CgroupVersion` on v2, which has no per-cgroup swappiness knob. Use
+    /// [`MemController::set_memswap_limit`] to bound swap usage there instead.
     pub fn set_swappiness(&self, swp: u64) -> Result<()> {
-        let mut file_name = "memory.swappiness";
         if self.v2 {
-            file_name = "memory.swap.max"
+            return Err(Error::new(CgroupVersion));
         }
+        let file_name = "memory.swappiness";
 
         self.open_path(file_name, true).and_then(|mut file| {
             file.write_all(swp.to_string().as_ref()).map_err(|e| {
@@ -1011,7 +1019,13 @@ mod tests {
         parse_memory_stat, parse_numa_stat, parse_oom_control, MemController, MemoryStat, NumaStat,
         OomControl,
     };
-    use std::path::PathBuf;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const V2_SWAP_CURRENT: u64 = 3_784_704;
+    const V2_CURRENT: u64 = 1_048_576;
+    const V2_PEAK: u64 = 2_097_152;
 
     static GOOD_VALUE: &str = "\
 total=51189 N0=51189 N1=123
@@ -1237,5 +1251,114 @@ total_unevictable 81920
             c.disable_oom_killer().unwrap_err().kind(),
             &ErrorKind::CgroupVersion
         );
+    }
+
+    #[test]
+    fn test_memory_stat_v2_reports_swap_usage() {
+        let cgroup = TestCgroupDir::new();
+        cgroup.write("memory.high", "max");
+        cgroup.write("memory.low", "0");
+        cgroup.write("memory.max", "max");
+        cgroup.write("memory.min", "0");
+        cgroup.write("memory.current", &V2_CURRENT.to_string());
+        cgroup.write("memory.peak", &V2_PEAK.to_string());
+        cgroup.write("memory.stat", "anon 1048576\nfile 0\n");
+        cgroup.write("memory.swap.current", &V2_SWAP_CURRENT.to_string());
+        cgroup.write("memory.swap.events", "high 0\nmax 0\nfail 0\n");
+        cgroup.write("memory.swap.max", "max");
+        cgroup.write("memory.swap.peak", "4194304");
+
+        let controller = MemController::new(
+            cgroup.path().to_path_buf(),
+            cgroup.path().to_path_buf(),
+            true,
+        );
+        let memory = controller.memory_stat();
+        let memswap = controller.memswap();
+
+        assert_eq!(memory.stat.swap, V2_SWAP_CURRENT);
+        assert_eq!(memory.stat.raw.get("swap"), Some(&V2_SWAP_CURRENT));
+        assert_eq!(memswap.usage_in_bytes, V2_SWAP_CURRENT);
+        assert_eq!(memory.swappiness, 0);
+
+        // The rest of memory.stat must survive the swap fixup.
+        assert_eq!(memory.stat.raw.get("anon"), Some(&1_048_576));
+        assert_eq!(memory.stat.raw.get("file"), Some(&0));
+        assert_eq!(memory.usage_in_bytes, V2_CURRENT);
+        assert_eq!(memory.max_usage_in_bytes, V2_PEAK);
+        assert_eq!(memory.limit_in_bytes, -1);
+        assert_eq!(memory.soft_limit_in_bytes, 0);
+
+        // Swap accounting can be compiled out, leaving no memory.swap.current to read.
+        cgroup.remove("memory.swap.current");
+        let memory = controller.memory_stat();
+
+        assert_eq!(memory.stat.swap, 0);
+        assert_eq!(memory.stat.raw.get("swap"), Some(&0));
+        assert_eq!(memory.stat.raw.get("anon"), Some(&1_048_576));
+    }
+
+    #[test]
+    fn test_set_swappiness_is_rejected_on_v2() {
+        let cgroup = TestCgroupDir::new();
+        cgroup.write("memory.swap.max", "max");
+
+        let controller = MemController::new(
+            cgroup.path().to_path_buf(),
+            cgroup.path().to_path_buf(),
+            true,
+        );
+
+        assert_eq!(
+            controller.set_swappiness(60).unwrap_err().kind(),
+            &ErrorKind::CgroupVersion
+        );
+        // The swap limit must not be repurposed as a swappiness knob.
+        assert_eq!(
+            fs::read_to_string(cgroup.path().join("memory.swap.max")).unwrap(),
+            "max"
+        );
+    }
+
+    struct TestCgroupDir {
+        path: PathBuf,
+    }
+
+    impl TestCgroupDir {
+        /// Creates a unique temporary cgroup fixture directory.
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "cgroups-rs-memory-test-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self { path }
+        }
+
+        /// Returns the temporary fixture path.
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        /// Writes a controller file into the temporary fixture.
+        fn write(&self, name: &str, contents: &str) {
+            fs::write(self.path.join(name), contents).unwrap();
+        }
+
+        /// Deletes a controller file from the temporary fixture.
+        fn remove(&self, name: &str) {
+            fs::remove_file(self.path.join(name)).unwrap();
+        }
+    }
+
+    impl Drop for TestCgroupDir {
+        fn drop(&mut self) {
+            // Runs while unwinding a failed assertion, so a panic here would abort and bury it.
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }
