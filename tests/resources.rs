@@ -5,8 +5,10 @@
 //
 
 //! Integration test about setting resources using `apply()`
+use std::collections::HashMap;
+
 use cgroups_rs::fs::pid::PidController;
-use cgroups_rs::fs::{Cgroup, MaxValue, PidResources, Resources};
+use cgroups_rs::fs::{Cgroup, MaxValue, MiscMaxValue, MiscResources, PidResources, Resources};
 
 #[test]
 fn pid_resources() {
@@ -26,6 +28,35 @@ fn pid_resources() {
         let pid_max = pidcontroller.get_pid_max();
         assert!(pid_max.is_ok());
         assert_eq!(pid_max.unwrap(), MaxValue::Value(512));
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn misc_resources() {
+    let h = cgroups_rs::fs::hierarchies::auto();
+
+    let root_misc = cgroups_rs::fs::misc::MiscController::new(
+        std::path::PathBuf::from("/sys/fs/cgroup"),
+        std::path::PathBuf::from("/sys/fs/cgroup"),
+        true,
+    );
+    let capacity = root_misc.capacity().unwrap_or_default();
+    let first_res = capacity
+        .lines()
+        .find_map(|line| line.split_whitespace().next());
+
+    let cg = Cgroup::new(h, String::from("misc_resources")).unwrap();
+    {
+        let mut maximum = HashMap::new();
+        if let Some(res_name) = first_res {
+            maximum.insert(res_name.to_string(), MiscMaxValue::Max);
+        }
+        let res = Resources {
+            misc: MiscResources { maximum },
+            ..Default::default()
+        };
+        cg.apply(&res).unwrap();
     }
     cg.delete().unwrap();
 }

@@ -45,6 +45,7 @@ pub mod freezer;
 pub mod hierarchies;
 pub mod hugetlb;
 pub mod memory;
+pub mod misc;
 pub mod net_cls;
 pub mod net_prio;
 pub mod perf_event;
@@ -62,6 +63,7 @@ use crate::fs::error::*;
 use crate::fs::freezer::FreezerController;
 use crate::fs::hugetlb::HugeTlbController;
 use crate::fs::memory::MemController;
+use crate::fs::misc::MiscController;
 use crate::fs::net_cls::NetClsController;
 use crate::fs::net_prio::NetPrioController;
 use crate::fs::perf_event::PerfEventController;
@@ -101,6 +103,8 @@ pub enum Subsystem {
     HugeTlb(HugeTlbController),
     /// Controller for the `Rdma` subsystem, see `RdmaController` for more information.
     Rdma(RdmaController),
+    /// Controller for the `Misc` subsystem, see `MiscController` for more information.
+    Misc(MiscController),
     /// Controller for the `Systemd` subsystem, see `SystemdController` for more information.
     Systemd(SystemdController),
 }
@@ -121,6 +125,7 @@ pub enum Controllers {
     NetPrio,
     HugeTlb,
     Rdma,
+    Misc,
     Systemd,
 }
 
@@ -140,6 +145,7 @@ impl fmt::Display for Controllers {
             Controllers::NetPrio => write!(f, "net_prio"),
             Controllers::HugeTlb => write!(f, "hugetlb"),
             Controllers::Rdma => write!(f, "rdma"),
+            Controllers::Misc => write!(f, "misc"),
             Controllers::Systemd => write!(f, "name=systemd"),
         }
     }
@@ -734,6 +740,14 @@ pub struct BlkIoResources {
     pub attrs: HashMap<String, String>,
 }
 
+/// Resource limits on miscellaneous scalar resources (e.g. SEV, SEV-ES, TDX).
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MiscResources {
+    /// The maximum allowed capacity for each scalar resource in the control group.
+    pub maximum: HashMap<String, MiscMaxValue>,
+}
+
 /// The resource limits and constraints that will be set on the control group.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -752,6 +766,11 @@ pub struct Resources {
     pub hugepages: HugePageResources,
     /// Block device I/O related limits.
     pub blkio: BlkIoResources,
+    /// Scalar resources related limits.
+    // serde(default): configs serialized before this field was added do not
+    // contain it and must still deserialize.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub misc: MiscResources,
 }
 
 impl Subsystem {
@@ -809,6 +828,10 @@ impl Subsystem {
                 cont.get_path_mut().push(path);
                 cont
             }),
+            Subsystem::Misc(mut cont) => Subsystem::Misc({
+                cont.get_path_mut().push(path);
+                cont
+            }),
             Subsystem::Systemd(mut cont) => Subsystem::Systemd({
                 cont.get_path_mut().push(path);
                 cont
@@ -831,6 +854,7 @@ impl Subsystem {
             Subsystem::NetPrio(cont) => cont,
             Subsystem::HugeTlb(cont) => cont,
             Subsystem::Rdma(cont) => cont,
+            Subsystem::Misc(cont) => cont,
             Subsystem::Systemd(cont) => cont,
         }
     }
@@ -883,6 +907,36 @@ pub fn parse_max_value(s: &str) -> Result<MaxValue> {
     match s.trim().parse() {
         Ok(val) => Ok(MaxValue::Value(val)),
         Err(e) => Err(Error::with_cause(ParseError, e)),
+    }
+}
+
+/// The maximum allowed usage of a misc resource (`misc.max`).
+///
+/// Unlike [`MaxValue`], the limit is an unsigned 64-bit integer, matching the
+/// kernel misc ABI (`kstrtou64()`): negative values are rejected by the
+/// kernel, and limits above `i64::MAX` are representable.
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MiscMaxValue {
+    /// This value is used to leave the resource unconstrained.
+    Max,
+    /// When the value is a numerical value, it is passed via this enum field.
+    Value(u64),
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for MiscMaxValue {
+    fn default() -> Self {
+        MiscMaxValue::Max
+    }
+}
+
+impl fmt::Display for MiscMaxValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MiscMaxValue::Max => write!(f, "max"),
+            MiscMaxValue::Value(num) => write!(f, "{}", num),
+        }
     }
 }
 
