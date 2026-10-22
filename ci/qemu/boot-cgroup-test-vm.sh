@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 #
 # Start an Ubuntu 22.04 VM in an explicit cgroup mode. TCG is the default
-# accelerator because standard GitHub-hosted runners do not promise
-# general-purpose nested virtualization. Set QEMU_ACCEL=kvm explicitly when
-# running on a host where /dev/kvm is part of the supported environment.
+# accelerator, so the VM also boots on hosts without KVM. Set QEMU_ACCEL=kvm
+# where /dev/kvm is available, as the CI workflow does.
 
 set -euo pipefail
 
