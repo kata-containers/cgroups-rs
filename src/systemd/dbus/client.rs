@@ -4,18 +4,26 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 //
 
+use std::convert::TryFrom;
 use std::future::Future;
 use std::time::Duration;
 
 use async_io::Timer;
 use futures_lite::{future, StreamExt};
-use zbus::zvariant::Value;
+use log::warn;
+use zbus::fdo::PropertiesProxy;
+use zbus::names::InterfaceName;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zbus::{Error as ZbusError, Result as ZbusResult};
 
 use crate::systemd::dbus::error::{Error, Result};
 use crate::systemd::dbus::proxy::systemd_manager_proxy;
 use crate::systemd::dbus::systemd_manager_proxy::ManagerProxy as AsyncSystemManager;
-use crate::systemd::{Property, NO_SUCH_UNIT, PIDS, UNIT_MODE_REPLACE};
+use crate::systemd::utils::is_scope_unit;
+use crate::systemd::{
+    Property, ACTIVE_STATE, DEACTIVATING, FAILED, INACTIVE, JOB, NO_SUCH_UNIT, PIDS, REFS,
+    SCOPE_INTERFACE, SYSTEMD_SERVICE, TIMEOUT_STOP_USEC, UNIT_INTERFACE, UNIT_MODE_REPLACE,
+};
 use crate::CgroupPid;
 
 const START_JOB_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,6 +53,12 @@ impl SystemdClient<'_> {
             return Ok(());
         }
 
+        self.add_pid_prop(pid)
+    }
+
+    /// Same as `set_pid_prop()`, for a caller that knows the unit doesn't
+    /// exist.
+    pub(crate) fn add_pid_prop(&mut self, pid: CgroupPid) -> Result<()> {
         for prop in self.props.iter_mut() {
             if prop.0 == PIDS {
                 // If PIDS is already set, we append the new pid to the existing list.
@@ -153,8 +167,9 @@ impl SystemdClient<'_> {
             }
         }
 
-        // The unit must exist before setting properties.
-        if !self.exists() {
+        // A leftover unit with the same name may still be loaded, the
+        // properties are then applied when the new unit is started.
+        if !self.is_running()? {
             return Ok(());
         }
 
@@ -199,6 +214,162 @@ impl SystemdClient<'_> {
             .unwrap_or_default()
     }
 
+    /// Check if the unit exists and isn't stopping, failed or inactive. A
+    /// queued stop job may not have started yet.
+    fn is_running(&self) -> Result<bool> {
+        async_io::block_on(async {
+            let connection = zbus::Connection::system().await?;
+            let sys_proxy = AsyncSystemManager::new(&connection).await?;
+
+            let path = match get_unit(&sys_proxy, &self.unit).await? {
+                Some(path) => path,
+                None => return Ok(false),
+            };
+            let unit = unit_properties(&connection, path).await?;
+            let state: String = property(&unit, UNIT_INTERFACE, ACTIVE_STATE).await?;
+
+            if matches!(state.as_str(), INACTIVE | FAILED | DEACTIVATING) {
+                return Ok(false);
+            }
+
+            Ok(!has_job(&unit).await?)
+        })
+    }
+
+    /// systemd refuses to attach processes to a unit that is stopping or
+    /// failed, and to start a new transient unit with its name. Returns
+    /// whether a running unit with this name exists.
+    ///
+    /// The wait has no deadline, as it only lasts while systemd is bound to
+    /// end it. A leftover unit that may never go away is an error.
+    pub fn wait_stale_unit_gone(&self) -> Result<bool> {
+        async_io::block_on(async {
+            let connection = zbus::Connection::system().await?;
+            let sys_proxy = AsyncSystemManager::new(&connection).await?;
+
+            let path = match get_unit(&sys_proxy, &self.unit).await? {
+                Some(path) => path,
+                None => return Ok(false),
+            };
+            let unit = unit_properties(&connection, path).await?;
+
+            // Install the listeners before reading the state, so a change
+            // right after the read is not missed.
+            let mut removed = sys_proxy
+                .receive_unit_removed_with_args(&[(0, self.unit.as_str())])
+                .await?;
+            let mut changed = unit
+                .receive_properties_changed_with_args(&[(0, UNIT_INTERFACE)])
+                .await?
+                .filter(|signal| match signal.args() {
+                    Ok(args) => {
+                        let changed = args.changed_properties();
+                        changed.contains_key(ACTIVE_STATE) || changed.contains_key(JOB)
+                    }
+                    Err(_) => true,
+                });
+            sys_proxy.subscribe().await?;
+
+            let mut waiting = false;
+            loop {
+                if get_unit(&sys_proxy, &self.unit).await?.is_none() {
+                    return Ok(false);
+                }
+
+                let state: String = property(&unit, UNIT_INTERFACE, ACTIVE_STATE).await?;
+                match state.as_str() {
+                    DEACTIVATING => self.check_stop_bounded(&unit).await?,
+                    FAILED => {
+                        ignore_no_such_unit(sys_proxy.reset_failed_unit(&self.unit).await)?;
+                    }
+                    INACTIVE => self.check_not_held(&sys_proxy, &unit).await?,
+                    // A queued stop job may not have started yet.
+                    _ if has_job(&unit).await? => {}
+                    _ => return Ok(true),
+                }
+
+                if !waiting {
+                    warn!(
+                        "waiting for the leftover systemd unit {} ({}) to go away",
+                        self.unit, state
+                    );
+                    waiting = true;
+                }
+
+                let next = future::or(async { removed.next().await.map(|_| ()) }, async {
+                    changed.next().await.map(|_| ())
+                });
+                if next.await.is_none() {
+                    return Err(Error::UnitSignalStreamClosed);
+                }
+            }
+        })
+    }
+
+    /// Once its stop timeout expires, systemd kills the processes of a
+    /// stopping scope, or gives up on them.
+    async fn check_stop_bounded(&self, unit: &PropertiesProxy<'_>) -> Result<()> {
+        if !is_scope_unit(&self.unit) {
+            return Ok(());
+        }
+
+        let timeout: u64 = property(unit, SCOPE_INTERFACE, TIMEOUT_STOP_USEC).await?;
+        if timeout == u64::MAX {
+            return Err(Error::UnitStopUnbounded {
+                unit: self.unit.clone(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// systemd unloads an inactive unit before it handles our next message,
+    /// unless something holds it. A pending job ends on its own, but
+    /// leftover processes or D-Bus references may never go away.
+    async fn check_not_held(
+        &self,
+        sys_proxy: &AsyncSystemManager<'_>,
+        unit: &PropertiesProxy<'_>,
+    ) -> Result<()> {
+        if has_job(unit).await? {
+            return Ok(());
+        }
+
+        let mut holders = Vec::new();
+
+        let refs: Vec<String> = property(unit, UNIT_INTERFACE, REFS).await?;
+        if !refs.is_empty() {
+            holders.push(format!("referenced by D-Bus clients {}", refs.join(", ")));
+        }
+
+        let processes = match sys_proxy.get_unit_processes(&self.unit).await {
+            Ok(processes) => processes,
+            Err(ZbusError::MethodError(name, _, _)) if name.as_str() == NO_SUCH_UNIT => {
+                return Ok(());
+            }
+            Err(err) => return Err(err.into()),
+        };
+        if !processes.is_empty() {
+            let processes: Vec<String> = processes
+                .iter()
+                .map(|(_, pid, command)| format!("{} ({})", pid, command))
+                .collect();
+            holders.push(format!(
+                "processes left in its cgroup: {}",
+                processes.join(", ")
+            ));
+        }
+
+        if holders.is_empty() {
+            return Ok(());
+        }
+
+        Err(Error::UnitHeld {
+            unit: self.unit.clone(),
+            holders: holders.join("; "),
+        })
+    }
+
     /// Add a process (tgid) to the unit through dbus
     /// `AttachProcessesToUnit`.
     pub fn add_process(&self, pid: CgroupPid, subcgroup: &str) -> Result<()> {
@@ -219,6 +390,48 @@ where
         Err(timeout_error)
     })
     .await
+}
+
+async fn get_unit(
+    sys_proxy: &AsyncSystemManager<'_>,
+    name: &str,
+) -> Result<Option<OwnedObjectPath>> {
+    match sys_proxy.get_unit(name).await {
+        Ok(path) => Ok(Some(path)),
+        Err(ZbusError::MethodError(err_name, _, _)) if err_name.as_str() == NO_SUCH_UNIT => {
+            Ok(None)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+async fn unit_properties(
+    connection: &zbus::Connection,
+    path: OwnedObjectPath,
+) -> Result<PropertiesProxy<'static>> {
+    Ok(PropertiesProxy::builder(connection)
+        .destination(SYSTEMD_SERVICE)?
+        .path(path)?
+        .build()
+        .await?)
+}
+
+async fn property<T>(unit: &PropertiesProxy<'_>, interface: &'static str, name: &str) -> Result<T>
+where
+    T: TryFrom<OwnedValue>,
+    T::Error: Into<ZbusError>,
+{
+    let value = unit
+        .get(InterfaceName::from_static_str_unchecked(interface), name)
+        .await
+        .map_err(ZbusError::from)?;
+
+    T::try_from(value).map_err(|err| Error::Dbus(err.into()))
+}
+
+async fn has_job(unit: &PropertiesProxy<'_>) -> Result<bool> {
+    let (id, _): (u32, OwnedObjectPath) = property(unit, UNIT_INTERFACE, JOB).await?;
+    Ok(id != 0)
 }
 
 fn ignore_no_such_unit<T>(result: ZbusResult<T>) -> ZbusResult<bool> {
@@ -255,8 +468,8 @@ pub mod tests {
     use crate::systemd::dbus::error::Error;
     use crate::systemd::props::PropertiesBuilder;
     use crate::systemd::utils::expand_slice;
-    use crate::systemd::{DEFAULT_DESCRIPTION, DESCRIPTION, PIDS};
-    use crate::tests::{spawn_sleep_inf, spawn_yes};
+    use crate::systemd::{DEFAULT_DESCRIPTION, DESCRIPTION, PIDS, TIMEOUT_STOP_USEC};
+    use crate::tests::{spawn_sleep_inf, spawn_term_ignoring, spawn_yes};
 
     const TEST_SLICE: &str = "cgroupsrs-test.slice";
 
@@ -316,8 +529,17 @@ pub mod tests {
     }
 
     fn start_default_cgroup(pid: CgroupPid, unit: &'_ str) -> SystemdClient<'_> {
+        start_cgroup(pid, unit, vec![])
+    }
+
+    fn start_cgroup<'a>(
+        pid: CgroupPid,
+        unit: &'a str,
+        extra: Vec<Property<'a>>,
+    ) -> SystemdClient<'a> {
         let mut props = PropertiesBuilder::default_cgroup(TEST_SLICE, unit).build();
         props.push((PIDS, Value::Array(vec![pid.pid as u32].into())));
+        props.extend(extra);
         let cgroup = SystemdClient::new(unit, props).unwrap();
         // Stop the unit if it exists.
         cgroup.stop().unwrap();
@@ -479,6 +701,8 @@ pub mod tests {
         );
 
         stop_cgroup(&cgroup);
+        // StopUnit only queues the stop job.
+        cgroup.wait_stale_unit_gone().unwrap();
 
         // Check ActiveState: expected to be "inactive"
         let output = systemd_show(&cgroup.unit);
@@ -487,6 +711,71 @@ pub mod tests {
             "Unit is not inactive"
         );
 
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn test_wait_unit_held_by_ref() {
+        skip_if_no_systemd!();
+
+        let unit = test_unit();
+        let mut child = spawn_sleep_inf();
+        let cgroup = start_default_cgroup(CgroupPid::from(child.id() as u64), &unit);
+
+        let sys_proxy = systemd_manager_proxy().unwrap();
+        sys_proxy.ref_unit(&unit).unwrap();
+        stop_cgroup(&cgroup);
+        child.wait().unwrap();
+
+        let err = cgroup.wait_stale_unit_gone().unwrap_err();
+        assert!(matches!(err, Error::UnitHeld { .. }), "{}", err);
+
+        sys_proxy.unref_unit(&unit).unwrap();
+        assert!(!cgroup.wait_stale_unit_gone().unwrap());
+    }
+
+    #[test]
+    fn test_wait_unit_held_by_processes() {
+        skip_if_no_systemd!();
+
+        // systemd gives up on stopping the unit, and leaves the process.
+        let unit = test_unit();
+        let mut child = spawn_term_ignoring();
+        let cgroup = start_cgroup(
+            CgroupPid::from(child.id() as u64),
+            &unit,
+            vec![
+                (TIMEOUT_STOP_USEC, Value::U64(1_000_000)),
+                ("SendSIGKILL", Value::Bool(false)),
+            ],
+        );
+        stop_cgroup(&cgroup);
+
+        let err = cgroup.wait_stale_unit_gone().unwrap_err();
+        assert!(matches!(err, Error::UnitHeld { .. }), "{}", err);
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(!cgroup.wait_stale_unit_gone().unwrap());
+    }
+
+    #[test]
+    fn test_wait_unit_stop_unbounded() {
+        skip_if_no_systemd!();
+
+        let unit = test_unit();
+        let mut child = spawn_term_ignoring();
+        let cgroup = start_cgroup(
+            CgroupPid::from(child.id() as u64),
+            &unit,
+            vec![(TIMEOUT_STOP_USEC, Value::U64(u64::MAX))],
+        );
+        stop_cgroup(&cgroup);
+
+        let err = cgroup.wait_stale_unit_gone().unwrap_err();
+        assert!(matches!(err, Error::UnitStopUnbounded { .. }), "{}", err);
+
+        child.kill().unwrap();
         child.wait().unwrap();
     }
 
