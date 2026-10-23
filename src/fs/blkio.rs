@@ -147,34 +147,48 @@ fn parse_io_service(s: String) -> Result<Vec<IoService>> {
     Ok(io_services)
 }
 
-fn get_value(s: &str) -> String {
-    let arr = s.split(':').collect::<Vec<&str>>();
-    if arr.len() != 2 {
-        return "0".to_string();
-    }
-    arr[1].to_string()
-}
-
 fn parse_io_stat(s: String) -> Vec<IoStat> {
     // line:
     // 8:0 rbytes=180224 wbytes=0 rios=3 wios=0 dbytes=0 dios=0
     s.lines()
-        .filter(|x| x.split_whitespace().count() == 7)
-        .map(|x| {
-            let arr = x.split_whitespace().collect::<Vec<&str>>();
-            let device = arr[0].split(':').collect::<Vec<&str>>();
-            let (major, minor) = (device[0], device[1]);
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let mut device = fields.next()?.split(':');
+            let major = device.next()?.parse::<i16>().ok()?;
+            let minor = device.next()?.parse::<i16>().ok()?;
 
-            IoStat {
-                major: major.parse::<i16>().unwrap(),
-                minor: minor.parse::<i16>().unwrap(),
-                rbytes: get_value(arr[1]).parse::<u64>().unwrap(),
-                wbytes: get_value(arr[2]).parse::<u64>().unwrap(),
-                rios: get_value(arr[3]).parse::<u64>().unwrap(),
-                wios: get_value(arr[4]).parse::<u64>().unwrap(),
-                dbytes: get_value(arr[5]).parse::<u64>().unwrap(),
-                dios: get_value(arr[6]).parse::<u64>().unwrap(),
+            let mut io_stat = IoStat {
+                major,
+                minor,
+                rbytes: 0,
+                wbytes: 0,
+                rios: 0,
+                wios: 0,
+                dbytes: 0,
+                dios: 0,
+            };
+
+            for field in fields {
+                let (key, value) = match field.split_once('=') {
+                    Some(kv) => kv,
+                    None => continue,
+                };
+                let value = match value.parse::<u64>() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                match key {
+                    "rbytes" => io_stat.rbytes = value,
+                    "wbytes" => io_stat.wbytes = value,
+                    "rios" => io_stat.rios = value,
+                    "wios" => io_stat.wios = value,
+                    "dbytes" => io_stat.dbytes = value,
+                    "dios" => io_stat.dios = value,
+                    _ => {}
+                }
             }
+
+            Some(io_stat)
         })
         .collect::<Vec<IoStat>>()
 }
@@ -831,6 +845,7 @@ impl CustomizedAttribute for BlkIoController {}
 mod test {
     use crate::fs::blkio::{parse_blkio_data, BlkIoData};
     use crate::fs::blkio::{parse_io_service, parse_io_service_total, IoService};
+    use crate::fs::blkio::{parse_io_stat, IoStat};
     use crate::fs::error::*;
 
     static TEST_VALUE: &str = "\
@@ -942,6 +957,44 @@ b:32 Write 1
             let err = parse_io_service(value.to_string()).unwrap_err();
             assert_eq!(err.kind(), &ErrorKind::ParseError,);
         }
+    }
+
+    #[test]
+    fn test_parse_io_stat() {
+        let value = "179:96 rbytes=1228802 wbytes=1228800 rios=382 wios=84 dbytes=234 dios=2434";
+        assert_eq!(
+            parse_io_stat(value.to_string()),
+            vec![IoStat {
+                major: 179,
+                minor: 96,
+                rbytes: 1228802,
+                wbytes: 1228800,
+                rios: 382,
+                wios: 84,
+                dbytes: 234,
+                dios: 2434,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_parse_io_stat_missing_and_unknown_fields() {
+        // older kernels omit dbytes/dios, newer ones may add extra policy-specific keys,
+        // and field order/count is not guaranteed
+        let value = "8:0 wios=84 rbytes=1228802 cost.usage=42 rios=382";
+        assert_eq!(
+            parse_io_stat(value.to_string()),
+            vec![IoStat {
+                major: 8,
+                minor: 0,
+                rbytes: 1228802,
+                wbytes: 0,
+                rios: 382,
+                wios: 84,
+                dbytes: 0,
+                dios: 0,
+            }]
+        );
     }
 
     #[test]
