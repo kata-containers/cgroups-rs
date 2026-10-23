@@ -260,6 +260,7 @@ impl Cgroup {
             Subsystem::NetPrio(c) => c.delete(),
             Subsystem::HugeTlb(c) => c.delete(),
             Subsystem::Rdma(c) => c.delete(),
+            Subsystem::Misc(c) => c.delete(),
             Subsystem::Systemd(c) => c.delete(),
         })
     }
