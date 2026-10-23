@@ -19,6 +19,7 @@ pub const CPU_SHARES_V1_MAX: u64 = 262144;
 pub const CPU_WEIGHT_V2_MAX: u64 = 10000;
 
 /// The current state of the control group
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FreezerState {
     /// The processes in the control group are _not_ frozen.

@@ -993,3 +993,24 @@ fn read_u64_from(file: File) -> Result<u64> {
 fn read_i64_from(file: File) -> Result<i64> {
     read_from::<i64>(file)
 }
+
+/// Read a single `key value` line from a keyed cgroup file (e.g.
+/// `cgroup.events`, `memory.events`) and parse the value as u64.
+///
+/// Returns `Ok(Some(n))` if the key was found, `Ok(None)` if the key was
+/// absent. `file_name` is used in read-error messages for diagnostics.
+fn read_keyed_u64(reader: impl BufRead, key: &str, file_name: &str) -> Result<Option<u64>> {
+    for line in reader.lines() {
+        let line = line.map_err(|e| Error::with_cause(ReadFailed(file_name.to_string()), e))?;
+        let mut parts = line.split_whitespace();
+        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+            if k == key {
+                let n = v
+                    .parse::<u64>()
+                    .map_err(|e| Error::with_cause(ParseError, e))?;
+                return Ok(Some(n));
+            }
+        }
+    }
+    Ok(None)
+}

@@ -7,7 +7,7 @@ use nix::errno::Errno;
 use nix::sys::eventfd::{EfdFlags, EventFd};
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
@@ -20,21 +20,9 @@ fn read_oom_count(path: &Path) -> Result<u64> {
     let file = File::open(path)
         .map_err(|e| Error::with_cause(ReadFailed(path.display().to_string()), e))?;
     let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line =
-            line.map_err(|e| Error::with_cause(ReadFailed(path.display().to_string()), e))?;
-
-        let mut parts = line.split_whitespace();
-        if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
-            if key == "oom" {
-                let count: u64 = value
-                    .parse::<u64>()
-                    .map_err(|e| Error::with_cause(ParseError, e))?;
-                return Ok(count);
-            }
-        }
-    }
-    Err(Error::from_string("oom not found".to_string()))
+    let name = path.display().to_string();
+    crate::fs::read_keyed_u64(reader, "oom", &name)?
+        .ok_or_else(|| Error::from_string("oom not found".to_string()))
 }
 
 // notify_on_oom returns channel on which you can expect event about OOM,
