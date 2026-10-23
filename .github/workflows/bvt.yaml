@@ -45,7 +45,7 @@ jobs:
       CGROUP_IMAGE_SHA256: 757908b2fd6d5b1431bb45070fc1f56cbf017d4025568d292ece37d9cc75e812
       CGROUP_IMAGE_URL: https://cloud-images.ubuntu.com/releases/jammy/release-20260722/ubuntu-22.04-server-cloudimg-amd64.img
       UNEXPECTED_SKIP: ${{ matrix.unexpected_skip }}
-      QEMU_ACCEL: tcg
+      QEMU_ACCEL: kvm
     steps:
       - uses: actions/checkout@v6
 
@@ -100,6 +100,13 @@ jobs:
             -t ed25519 \
             -N "" \
             -f "${RUNNER_TEMP}/cgroup-ssh/id_ed25519"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm --settle
 
       - name: Start cgroup ${{ matrix.hierarchy }} guest
         run: |

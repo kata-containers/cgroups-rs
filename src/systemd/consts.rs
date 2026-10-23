@@ -12,6 +12,16 @@ pub const UNIT_MODE_REPLACE: &str = "replace";
 /// No such unit error
 pub const NO_SUCH_UNIT: &str = "org.freedesktop.systemd1.NoSuchUnit";
 
+pub const SYSTEMD_SERVICE: &str = "org.freedesktop.systemd1";
+pub const UNIT_INTERFACE: &str = "org.freedesktop.systemd1.Unit";
+pub const ACTIVE_STATE: &str = "ActiveState";
+pub const INACTIVE: &str = "inactive";
+pub const FAILED: &str = "failed";
+pub const DEACTIVATING: &str = "deactivating";
+pub const JOB: &str = "Job";
+pub const REFS: &str = "Refs";
+pub const SCOPE_INTERFACE: &str = "org.freedesktop.systemd1.Scope";
+
 /// Default description for transient units.
 pub const DEFAULT_DESCRIPTION: &str = "cgroups-rs transient unit";
 

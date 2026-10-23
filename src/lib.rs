@@ -52,7 +52,10 @@ impl From<&std::process::Child> for CgroupPid {
 #[cfg(test)]
 pub mod tests {
     use std::fs;
+    use std::os::unix::process::CommandExt;
     use std::process::{Child, Command, Stdio};
+
+    use nix::sys::signal::{signal, SigHandler, Signal};
 
     /// Start a mock subprocess that will sleep forever
     pub fn spawn_sleep_inf() -> Child {
@@ -61,6 +64,19 @@ pub mod tests {
             .spawn()
             .expect("Failed to start mock subprocess");
         child
+    }
+
+    pub fn spawn_term_ignoring() -> Child {
+        let mut command = Command::new("sleep");
+        command.arg("infinity");
+        // An ignored signal stays ignored across exec.
+        unsafe {
+            command.pre_exec(|| {
+                signal(Signal::SIGTERM, SigHandler::SigIgn)?;
+                Ok(())
+            });
+        }
+        command.spawn().unwrap()
     }
 
     pub fn spawn_yes() -> Child {

@@ -203,8 +203,8 @@ impl SystemdManager<'_> {
 
 impl Manager for SystemdManager<'_> {
     fn add_proc(&mut self, pid: CgroupPid) -> Result<()> {
-        if !self.systemd_client.exists() {
-            self.systemd_client.set_pid_prop(pid)?;
+        if !self.systemd_client.wait_stale_unit_gone()? {
+            self.systemd_client.add_pid_prop(pid)?;
             self.systemd_client.start()?;
             // The fs_manager was created in load mode, which doesn't create
             // the cgroups. So we create them here.
@@ -349,7 +349,7 @@ mod tests {
     use crate::fs::{ControllIdentifier, Controller, Subsystem};
     use crate::manager::systemd::*;
     use crate::manager::tests::{MEMORY_1G, MEMORY_2G, MEMORY_512M};
-    use crate::tests::spawn_sleep_inf;
+    use crate::tests::{spawn_sleep_inf, spawn_term_ignoring};
     use crate::{skip_if_cgroups_v1, skip_if_cgroups_v2, skip_if_no_systemd};
 
     fn new_cgroups_path() -> (String, String, String) {
@@ -475,6 +475,41 @@ mod tests {
         assert!(!Path::new(&cgroup_path).exists());
         // Unit should be stopped.
         assert!(!manager.systemd_client.exists());
+    }
+
+    #[test]
+    fn test_add_proc_after_stale_unit() {
+        skip_if_no_systemd!();
+
+        let (slice, scope_prefix, name) = new_cgroups_path();
+        let path = format!("{}:{}:{}", slice, scope_prefix, name);
+
+        // The stopped unit stays deactivating until its stop timeout
+        // expires, then failed until its failure is reset.
+        let mut stale = SystemdManager::new(&path).unwrap();
+        stale.set_term_timeout(2).unwrap();
+        let mut stale_child = spawn_term_ignoring();
+        stale
+            .add_proc(CgroupPid {
+                pid: stale_child.id() as u64,
+            })
+            .unwrap();
+        stale.destroy().unwrap();
+
+        let mut manager = SystemdManager::new(&path).unwrap();
+        manager.set_term_timeout(300).unwrap();
+        let mut child = spawn_sleep_inf();
+        let pid = CgroupPid {
+            pid: child.id() as u64,
+        };
+        manager.add_proc(pid).unwrap();
+
+        stale_child.wait().unwrap();
+        assert!(child.try_wait().unwrap().is_none());
+        assert!(manager.pids().unwrap().contains(&pid));
+
+        manager.destroy().unwrap();
+        child.wait().unwrap();
     }
 
     fn controller<'a, T>(fs_manager: &'a FsManager) -> &'a T

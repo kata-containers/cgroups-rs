@@ -25,6 +25,15 @@ pub enum Error {
         timeout: Duration,
     },
 
+    #[error("systemd unit {unit} is stopping without a stop timeout")]
+    UnitStopUnbounded { unit: String },
+
+    #[error("systemd unit {unit} is inactive but can't be reused: {holders}")]
+    UnitHeld { unit: String, holders: String },
+
+    #[error("systemd unit signal stream closed")]
+    UnitSignalStreamClosed,
+
     #[error("dbus error: {0}")]
     Dbus(#[from] zbus::Error),
 }

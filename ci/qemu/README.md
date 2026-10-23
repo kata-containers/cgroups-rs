@@ -5,13 +5,14 @@ and cgroup v2 modes. Both the cgroupfs and systemd backends are therefore
 tested against real kernel interfaces without inheriting the GitHub runner's
 cgroup hierarchy, systemd version, mount layout, or delegation policy.
 
-The workflow intentionally defaults to QEMU TCG software emulation. GitHub
-documents Android SDK hardware acceleration on Linux runners, but it does not
-promise general-purpose nested virtualization or `/dev/kvm` access.
+The workflow runs the guests with KVM. GitHub-hosted Linux runners provide
+`/dev/kvm`, but only to root, so the workflow first opens it to the runner
+user with a udev rule. The scripts default to QEMU TCG software emulation, so
+they also work on hosts without KVM.
 
-To keep TCG practical, Rust test executables are cross-compiled as static musl
-binaries on the GitHub runner. Only the completed executables run inside the
-guest. `run-tests-in-cgroup-vm.sh` transfers them together with
+Rust test executables are cross-compiled as static musl binaries on the GitHub
+runner, which keeps local runs with TCG practical. Only the completed
+executables run inside the guest. `run-tests-in-cgroup-vm.sh` transfers them together with
 `run-test-binaries-in-guest.sh`, which contains the guest-side test ordering
 and failure cleanup.
 
