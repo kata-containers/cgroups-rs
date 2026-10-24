@@ -21,8 +21,9 @@ use crate::systemd::dbus::proxy::systemd_manager_proxy;
 use crate::systemd::dbus::systemd_manager_proxy::ManagerProxy as AsyncSystemManager;
 use crate::systemd::utils::is_scope_unit;
 use crate::systemd::{
-    Property, ACTIVE_STATE, DEACTIVATING, FAILED, INACTIVE, JOB, NO_SUCH_UNIT, PIDS, REFS,
-    SCOPE_INTERFACE, SYSTEMD_SERVICE, TIMEOUT_STOP_USEC, UNIT_INTERFACE, UNIT_MODE_REPLACE,
+    Property, ACTIVE_STATE, BEFORE, DEACTIVATING, FAILED, INACTIVE, JOB, JOB_INTERFACE,
+    JOB_RESTART, JOB_STOP, JOB_TYPE, NO_SUCH_UNIT, PIDS, REFS, SCOPE_INTERFACE, SYSTEMD_SERVICE,
+    TIMEOUT_STOP_USEC, UNIT_INTERFACE, UNIT_MODE_REPLACE,
 };
 use crate::CgroupPid;
 
@@ -225,7 +226,7 @@ impl SystemdClient<'_> {
                 Some(path) => path,
                 None => return Ok(false),
             };
-            let unit = unit_properties(&connection, path).await?;
+            let unit = properties_proxy(&connection, path).await?;
             let state: String = property(&unit, UNIT_INTERFACE, ACTIVE_STATE).await?;
 
             if matches!(state.as_str(), INACTIVE | FAILED | DEACTIVATING) {
@@ -251,7 +252,7 @@ impl SystemdClient<'_> {
                 Some(path) => path,
                 None => return Ok(false),
             };
-            let unit = unit_properties(&connection, path).await?;
+            let unit = properties_proxy(&connection, path).await?;
 
             // Install the listeners before reading the state, so a change
             // right after the read is not missed.
@@ -284,7 +285,10 @@ impl SystemdClient<'_> {
                     }
                     INACTIVE => self.check_not_held(&sys_proxy, &unit).await?,
                     // A queued stop job may not have started yet.
-                    _ if has_job(&unit).await? => {}
+                    _ if has_job(&unit).await? => {
+                        self.check_stop_job_not_blocked(&connection, &sys_proxy, &unit)
+                            .await?
+                    }
                     _ => return Ok(true),
                 }
 
@@ -321,6 +325,42 @@ impl SystemdClient<'_> {
         }
 
         Ok(())
+    }
+
+    /// A queued stop job runs once systemd is idle, unless it waits for the
+    /// stop jobs of the units this one is ordered before, which may never
+    /// finish.
+    async fn check_stop_job_not_blocked(
+        &self,
+        connection: &zbus::Connection,
+        sys_proxy: &AsyncSystemManager<'_>,
+        unit: &PropertiesProxy<'_>,
+    ) -> Result<()> {
+        if !is_stop_job(job_type(connection, unit).await?) {
+            return Ok(());
+        }
+
+        let mut blockers = Vec::new();
+        let before: Vec<String> = property(unit, UNIT_INTERFACE, BEFORE).await?;
+        for name in before {
+            let path = match get_unit(sys_proxy, &name).await? {
+                Some(path) => path,
+                None => continue,
+            };
+            let other = properties_proxy(connection, path).await?;
+            if is_stop_job(job_type(connection, &other).await?) {
+                blockers.push(name);
+            }
+        }
+
+        if blockers.is_empty() {
+            return Ok(());
+        }
+
+        Err(Error::UnitStopBlocked {
+            unit: self.unit.clone(),
+            units: blockers.join(", "),
+        })
     }
 
     /// systemd unloads an inactive unit before it handles our next message,
@@ -405,7 +445,7 @@ async fn get_unit(
     }
 }
 
-async fn unit_properties(
+async fn properties_proxy(
     connection: &zbus::Connection,
     path: OwnedObjectPath,
 ) -> Result<PropertiesProxy<'static>> {
@@ -432,6 +472,34 @@ where
 async fn has_job(unit: &PropertiesProxy<'_>) -> Result<bool> {
     let (id, _): (u32, OwnedObjectPath) = property(unit, UNIT_INTERFACE, JOB).await?;
     Ok(id != 0)
+}
+
+/// Returns `None` if the unit has no job, or it finished meanwhile.
+async fn job_type(
+    connection: &zbus::Connection,
+    unit: &PropertiesProxy<'_>,
+) -> Result<Option<String>> {
+    let (id, path): (u32, OwnedObjectPath) = property(unit, UNIT_INTERFACE, JOB).await?;
+    if id == 0 {
+        return Ok(None);
+    }
+
+    let job = properties_proxy(connection, path).await?;
+    match job
+        .get(
+            InterfaceName::from_static_str_unchecked(JOB_INTERFACE),
+            JOB_TYPE,
+        )
+        .await
+    {
+        Ok(value) => Ok(Some(String::try_from(value).map_err(ZbusError::from)?)),
+        Err(zbus::fdo::Error::UnknownObject(_)) => Ok(None),
+        Err(err) => Err(ZbusError::from(err).into()),
+    }
+}
+
+fn is_stop_job(job_type: Option<String>) -> bool {
+    matches!(job_type.as_deref(), Some(JOB_STOP | JOB_RESTART))
 }
 
 fn ignore_no_such_unit<T>(result: ZbusResult<T>) -> ZbusResult<bool> {
@@ -468,7 +536,7 @@ pub mod tests {
     use crate::systemd::dbus::error::Error;
     use crate::systemd::props::PropertiesBuilder;
     use crate::systemd::utils::expand_slice;
-    use crate::systemd::{DEFAULT_DESCRIPTION, DESCRIPTION, PIDS, TIMEOUT_STOP_USEC};
+    use crate::systemd::{AFTER, DEFAULT_DESCRIPTION, DESCRIPTION, PIDS, TIMEOUT_STOP_USEC};
     use crate::tests::{spawn_sleep_inf, spawn_term_ignoring, spawn_yes};
 
     const TEST_SLICE: &str = "cgroupsrs-test.slice";
@@ -776,6 +844,37 @@ pub mod tests {
         assert!(matches!(err, Error::UnitStopUnbounded { .. }), "{}", err);
 
         child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn test_wait_stop_job_blocked() {
+        skip_if_no_systemd!();
+
+        let unit = test_unit();
+        let mut child = spawn_sleep_inf();
+        let cgroup = start_default_cgroup(CgroupPid::from(child.id() as u64), &unit);
+
+        // Being ordered after the unit, the blocker has to stop first, and
+        // never does.
+        let blocker_unit = test_unit();
+        let mut blocker_child = spawn_term_ignoring();
+        let blocker = start_cgroup(
+            CgroupPid::from(blocker_child.id() as u64),
+            &blocker_unit,
+            vec![
+                (AFTER, Value::Array(vec![unit.as_str()].into())),
+                (TIMEOUT_STOP_USEC, Value::U64(u64::MAX)),
+            ],
+        );
+        stop_cgroup(&blocker);
+        stop_cgroup(&cgroup);
+
+        let err = cgroup.wait_stale_unit_gone().unwrap_err();
+        assert!(matches!(err, Error::UnitStopBlocked { .. }), "{}", err);
+
+        blocker_child.kill().unwrap();
+        blocker_child.wait().unwrap();
         child.wait().unwrap();
     }
 
