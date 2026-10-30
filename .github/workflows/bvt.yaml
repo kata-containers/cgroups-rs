@@ -27,6 +27,42 @@ jobs:
       - run: rustup install ${{ env.RUST_VERSION }} && rustup default ${{ env.RUST_VERSION }}
       - run: rustup component add clippy
       - run: make clippy
+  systemd-job-signals:
+    name: Systemd job signals / dbus-broker 36
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup install ${{ env.RUST_VERSION }} && rustup default ${{ env.RUST_VERSION }}
+
+      - name: Install private bus build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build pkg-config libexpat1-dev libsystemd-dev systemd-dev
+
+      - name: Build private dbus-broker 36
+        run: |
+          git init "${RUNNER_TEMP}/dbus-broker-src"
+          git -C "${RUNNER_TEMP}/dbus-broker-src" remote add origin https://github.com/bus1/dbus-broker.git
+          git -C "${RUNNER_TEMP}/dbus-broker-src" fetch --depth=1 origin 9eb0b7e5826fc76cad7b025bc46f267d4a8784cb
+          git -C "${RUNNER_TEMP}/dbus-broker-src" checkout --detach FETCH_HEAD
+          meson setup "${RUNNER_TEMP}/dbus-broker-build" "${RUNNER_TEMP}/dbus-broker-src" \
+            --prefix="${RUNNER_TEMP}/dbus-broker" -Ddocs=false -Dselinux=false -Daudit=false
+          meson compile -C "${RUNNER_TEMP}/dbus-broker-build"
+          mkdir -p "${RUNNER_TEMP}/dbus-broker/bin"
+          cp "${RUNNER_TEMP}/dbus-broker-build/src/dbus-broker" \
+            "${RUNNER_TEMP}/dbus-broker-build/src/dbus-broker-launch" \
+            "${RUNNER_TEMP}/dbus-broker/bin/"
+
+      - name: Build and test job notifications
+        run: |
+          cargo test --lib --no-run --message-format=json > "${RUNNER_TEMP}/test-binaries.jsonl"
+          test_binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \
+            "${RUNNER_TEMP}/test-binaries.jsonl")
+          test -n "${test_binary}"
+          python3 ci/test-systemd-job-signals.py "${test_binary}" \
+            --broker-launcher "${RUNNER_TEMP}/dbus-broker/bin/dbus-broker-launch"
   test:
     name: Unit and Integration Test / ${{ matrix.hierarchy }}
     runs-on: ubuntu-24.04
