@@ -97,11 +97,9 @@ impl SystemdClient<'_> {
             let connection = zbus::Connection::system().await?;
             let sys_proxy = AsyncSystemManager::new(&connection).await?;
 
-            // StartTransientUnit only queues the start job. Install the signal
-            // listener first so a fast job cannot finish before we start waiting.
-            let mut job_removed = sys_proxy
-                .receive_job_removed_with_args(&[(2, self.unit.as_str())])
-                .await?;
+            // Subscribe before starting to catch fast jobs. dbus-broker 36 drops
+            // arg2-filtered signals; match the returned job path below instead.
+            let mut job_removed = sys_proxy.receive_job_removed().await?;
             sys_proxy.subscribe().await?;
 
             let job = sys_proxy
@@ -472,6 +470,60 @@ pub mod tests {
     use crate::tests::{spawn_sleep_inf, spawn_term_ignoring, spawn_yes};
 
     const TEST_SLICE: &str = "cgroupsrs-test.slice";
+
+    type TestUnitProperties = Vec<(String, OwnedValue)>;
+
+    struct JobTestManager;
+
+    #[zbus::interface(name = "org.freedesktop.systemd1.Manager")]
+    impl JobTestManager {
+        fn subscribe(&self) {}
+
+        async fn start_transient_unit(
+            &self,
+            name: &str,
+            _mode: &str,
+            _properties: TestUnitProperties,
+            _aux: Vec<(String, TestUnitProperties)>,
+            #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
+        ) -> zbus::fdo::Result<OwnedObjectPath> {
+            let job = OwnedObjectPath::try_from("/org/freedesktop/systemd1/job/1").unwrap();
+            Self::job_removed(&emitter, 1, job.clone(), name, "done").await?;
+            Ok(job)
+        }
+
+        #[zbus(signal)]
+        async fn job_removed(
+            emitter: &zbus::object_server::SignalEmitter<'_>,
+            id: u32,
+            job: OwnedObjectPath,
+            unit: &str,
+            result: &str,
+        ) -> zbus::Result<()>;
+    }
+
+    #[test]
+    #[ignore = "requires a private broker; run ci/test-systemd-job-signals.py"]
+    fn test_start_job_signal_with_broker() {
+        assert_eq!(
+            std::env::var("CGROUPS_RS_TEST_PRIVATE_BUS").as_deref(),
+            Ok("1"),
+            "refusing to register a fake systemd manager on the system bus"
+        );
+        let address = std::env::var("DBUS_SYSTEM_BUS_ADDRESS").unwrap();
+        let _server = zbus::blocking::connection::Builder::address(address.as_str())
+            .unwrap()
+            .name(SYSTEMD_SERVICE)
+            .unwrap()
+            .serve_at("/org/freedesktop/systemd1", JobTestManager)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let props = vec![(PIDS, Value::Array(vec![std::process::id()].into()))];
+        let client = SystemdClient::new("job-success.scope", props).unwrap();
+        client.start().unwrap();
+    }
 
     #[test]
     fn test_wait_timeout() {
