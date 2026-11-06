@@ -78,6 +78,7 @@ impl ControllerInternal for CpuController {
         update_and_test!(self, set_shares, res.shares, shares);
         update_and_test!(self, set_cfs_period, res.period, cfs_period);
         update_and_test!(self, set_cfs_quota, res.quota, cfs_quota);
+        update_and_test!(self, set_cfs_burst, res.burst, cfs_burst);
 
         res.attrs.iter().for_each(|(k, v)| {
             let _ = self.set(k, v);
@@ -296,6 +297,38 @@ impl CpuController {
                     )
                 })
             })
+    }
+
+    pub fn set_cfs_burst(&self, us: u64) -> Result<()> {
+        if self.v2 {
+            return self.open_path("cpu.max.burst", true).and_then(|mut file| {
+                file.write_all(us.to_string().as_ref()).map_err(|e| {
+                    Error::with_cause(WriteFailed("cpu.max.burst".to_string(), us.to_string()), e)
+                })
+            });
+        }
+        self.open_path("cpu.cfs_burst_us", true)
+            .and_then(|mut file| {
+                file.write_all(us.to_string().as_ref()).map_err(|e| {
+                    Error::with_cause(
+                        WriteFailed("cpu.cfs_burst_us".to_string(), us.to_string()),
+                        e,
+                    )
+                })
+            })
+    }
+
+    pub fn cfs_burst(&self) -> Result<u64> {
+        if self.v2 {
+            let current_value = self
+                .open_path("cpu.max.burst", false)
+                .and_then(read_u64_from)?;
+            return Ok(current_value);
+        }
+        let current_value = self
+            .open_path("cpu.cfs_burst_us", false)
+            .and_then(read_u64_from)?;
+        Ok(current_value)
     }
 }
 
