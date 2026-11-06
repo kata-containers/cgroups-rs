@@ -21,6 +21,12 @@ pub const DEACTIVATING: &str = "deactivating";
 pub const JOB: &str = "Job";
 pub const REFS: &str = "Refs";
 pub const SCOPE_INTERFACE: &str = "org.freedesktop.systemd1.Scope";
+pub const BEFORE: &str = "Before";
+pub const AFTER: &str = "After";
+pub const JOB_INTERFACE: &str = "org.freedesktop.systemd1.Job";
+pub const JOB_TYPE: &str = "JobType";
+pub const JOB_STOP: &str = "stop";
+pub const JOB_RESTART: &str = "restart";
 
 /// Default description for transient units.
 pub const DEFAULT_DESCRIPTION: &str = "cgroups-rs transient unit";
