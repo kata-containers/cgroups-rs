@@ -19,6 +19,7 @@ use crate::fs::devices::DevicesController;
 use crate::fs::freezer::FreezerController;
 use crate::fs::hugetlb::HugeTlbController;
 use crate::fs::memory::MemController;
+use crate::fs::misc::MiscController;
 use crate::fs::net_cls::NetClsController;
 use crate::fs::net_prio::NetPrioController;
 use crate::fs::perf_event::PerfEventController;
@@ -167,6 +168,9 @@ impl Hierarchy for V1 {
         if let Some((point, root)) = self.get_mount_point(Controllers::Rdma) {
             subs.push(Subsystem::Rdma(RdmaController::new(point, root)));
         }
+        if let Some((point, root)) = self.get_mount_point(Controllers::Misc) {
+            subs.push(Subsystem::Misc(MiscController::new(point, root, false)));
+        }
         if let Some((point, root)) = self.get_mount_point(Controllers::Systemd) {
             subs.push(Subsystem::Systemd(SystemdController::new(
                 point, root, false,
@@ -268,6 +272,13 @@ impl Hierarchy for V2 {
                 }
                 "hugetlb" => {
                     subs.push(Subsystem::HugeTlb(HugeTlbController::new(
+                        self.root(),
+                        PathBuf::from(""),
+                        true,
+                    )));
+                }
+                "misc" => {
+                    subs.push(Subsystem::Misc(MiscController::new(
                         self.root(),
                         PathBuf::from(""),
                         true,
@@ -388,5 +399,20 @@ mod tests {
             let info = parse_mountinfo_for_line(mi.0).unwrap();
             assert_eq!(info, mi.1)
         }
+    }
+
+    #[test]
+    fn test_v1_subsystems_misc() {
+        let v1 = V1 {
+            mountinfo: vec![Mountinfo {
+                mount_root: PathBuf::from("/"),
+                mount_point: PathBuf::from("/sys/fs/cgroup/misc"),
+                fs_type: ("cgroup".to_string(), None),
+                super_opts: vec!["rw".to_string(), "misc".to_string()],
+            }],
+        };
+        let subs = v1.subsystems();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].controller_name(), "misc");
     }
 }

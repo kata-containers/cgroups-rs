@@ -11,6 +11,7 @@ use cgroups_rs::fs::cpu::*;
 use cgroups_rs::fs::devices::*;
 use cgroups_rs::fs::hugetlb::*;
 use cgroups_rs::fs::memory::*;
+use cgroups_rs::fs::misc::*;
 use cgroups_rs::fs::net_cls::*;
 use cgroups_rs::fs::pid::*;
 use cgroups_rs::fs::*;
@@ -164,6 +165,36 @@ pub fn test_blkio_res_build() {
     {
         let c: &BlkIoController = cg.controller_of().unwrap();
         assert_eq!(c.blkio().weight, 100);
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+pub fn test_misc_res_build() {
+    let h = cgroups_rs::fs::hierarchies::auto();
+    if !h.v2() {
+        return;
+    }
+
+    let root_misc = MiscController::new(
+        std::path::PathBuf::from("/sys/fs/cgroup"),
+        std::path::PathBuf::from("/sys/fs/cgroup"),
+        true,
+    );
+    let capacity = root_misc.capacity().unwrap_or_default();
+    let first_res = capacity
+        .lines()
+        .find_map(|line| line.split_whitespace().next());
+
+    let mut builder = CgroupBuilder::new("test_misc_res_build").misc();
+    if let Some(res_name) = first_res {
+        builder = builder.limit_max(res_name);
+    }
+    let cg: Cgroup = builder.done().build(h).unwrap();
+
+    let c: Option<&MiscController> = cg.controller_of();
+    if let Some(c) = c {
+        let _ = c.max();
     }
     cg.delete().unwrap();
 }

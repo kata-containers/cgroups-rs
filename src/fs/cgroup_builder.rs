@@ -62,7 +62,7 @@
 
 use crate::fs::{
     BlkIoDeviceResource, BlkIoDeviceThrottleResource, Cgroup, DeviceResource, Error, Hierarchy,
-    HugePageResource, MaxValue, NetworkPriority, Resources,
+    HugePageResource, MaxValue, MiscMaxValue, NetworkPriority, Resources,
 };
 
 macro_rules! gen_setter {
@@ -134,6 +134,11 @@ impl CgroupBuilder {
             cgroup: self,
             throttling_iops: false,
         }
+    }
+
+    /// Builds the misc resources available for the control group.
+    pub fn misc(self) -> MiscResourceBuilder {
+        MiscResourceBuilder { cgroup: self }
     }
 
     /// Finalize the control group, consuming the builder and creating the control group.
@@ -399,6 +404,51 @@ impl BlkIoResourcesBuilder {
     }
 
     /// Finish the construction of the blkio resources of a control group.
+    pub fn done(self) -> CgroupBuilder {
+        self.cgroup
+    }
+}
+
+/// A builder that configures the misc controller of a control group.
+pub struct MiscResourceBuilder {
+    cgroup: CgroupBuilder,
+}
+
+impl MiscResourceBuilder {
+    /// Set the maximum allowed usage of a misc resource (e.g. `"sev"`, `"sev_es"`, `"tdx"`).
+    /// Use `MiscMaxValue::Max` to leave a resource unconstrained.
+    pub fn limit(mut self, resource: &str, max: MiscMaxValue) -> MiscResourceBuilder {
+        self.cgroup
+            .resources
+            .misc
+            .maximum
+            .insert(resource.to_string(), max);
+        self
+    }
+
+    /// Convenience: set a numeric limit, e.g. `.limit_value("sev", 23)`.
+    ///
+    /// The limit is an unsigned 64-bit integer, matching the kernel misc ABI.
+    pub fn limit_value(mut self, resource: &str, max: u64) -> MiscResourceBuilder {
+        self.cgroup
+            .resources
+            .misc
+            .maximum
+            .insert(resource.to_string(), MiscMaxValue::Value(max));
+        self
+    }
+
+    /// Convenience: leave the resource unconstrained (`max`).
+    pub fn limit_max(mut self, resource: &str) -> MiscResourceBuilder {
+        self.cgroup
+            .resources
+            .misc
+            .maximum
+            .insert(resource.to_string(), MiscMaxValue::Max);
+        self
+    }
+
+    /// Finish the construction of the misc resources of a control group.
     pub fn done(self) -> CgroupBuilder {
         self.cgroup
     }
