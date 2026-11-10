@@ -13,9 +13,9 @@ use cgroups_rs::fs::cgroup::{
     CGROUP_MODE_DOMAIN, CGROUP_MODE_DOMAIN_INVALID, CGROUP_MODE_DOMAIN_THREADED,
     CGROUP_MODE_THREADED,
 };
+use cgroups_rs::fs::error::ErrorKind;
 use cgroups_rs::fs::memory::MemController;
-use cgroups_rs::fs::Controller;
-use cgroups_rs::fs::{Cgroup, Subsystem};
+use cgroups_rs::fs::{Cgroup, Controller, Controllers, Subsystem};
 use cgroups_rs::CgroupPid;
 
 #[test]
@@ -271,5 +271,214 @@ fn test_cgroup_v2() {
     println!("memswap {:?}", memswap);
     assert_eq!(swp, memswap.limit_in_bytes);
 
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_by_tgid_to_subsystems_v1() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
+    let cg = Cgroup::new(h, String::from("test_add_task_by_tgid_to_subsystems_v1")).unwrap();
+    {
+        // Attach the current process only to the memory subsystem.
+        cg.add_task_by_tgid_to_subsystems(CgroupPid::from(pid), &[Controllers::Mem])
+            .unwrap();
+
+        // Verify the pid landed in the memory subsystem but not in any other
+        // attached subsystem of this control group.
+        for sub in cg.subsystems() {
+            let procs = sub.to_controller().procs();
+            match sub {
+                Subsystem::Mem(_) => assert!(
+                    procs.contains(&CgroupPid::from(pid)),
+                    "pid not in memory subsystem after subset attach"
+                ),
+                _ => assert!(
+                    !procs.contains(&CgroupPid::from(pid)),
+                    "pid unexpectedly attached to a non-memory subsystem"
+                ),
+            }
+        }
+
+        // Move the process back to the root cgroup before cleanup.
+        cg.remove_task_by_tgid(CgroupPid::from(pid)).unwrap();
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_to_subsystems_v1() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
+    let cg = Cgroup::new(h, String::from("test_add_task_to_subsystems_v1")).unwrap();
+    {
+        // Attach the current thread only to the memory subsystem.
+        cg.add_task_to_subsystems(CgroupPid::from(pid), &[Controllers::Mem])
+            .unwrap();
+
+        for sub in cg.subsystems() {
+            let tasks = sub.to_controller().tasks();
+            match sub {
+                Subsystem::Mem(_) => assert!(
+                    tasks.contains(&CgroupPid::from(pid)),
+                    "tid not in memory subsystem after subset attach"
+                ),
+                _ => assert!(
+                    !tasks.contains(&CgroupPid::from(pid)),
+                    "tid unexpectedly attached to a non-memory subsystem"
+                ),
+            }
+        }
+
+        cg.remove_task(CgroupPid::from(pid)).unwrap();
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_to_subsystems_empty_v1() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::new(h, String::from("test_add_task_to_subsystems_empty_v1")).unwrap();
+    {
+        // An empty subsystem filter must fail before any write.
+        let err = cg
+            .add_task_to_subsystems(CgroupPid::from(1), &[])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SubsystemsEmpty);
+
+        let err = cg
+            .add_task_by_tgid_to_subsystems(CgroupPid::from(1), &[])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SubsystemsEmpty);
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_to_subsystems_no_match_v1() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    // Build a cgroup that only attaches the memory subsystem, then request a
+    // controller (cpu) that is not attached to it.
+    let cg = Cgroup::new_with_specified_controllers(
+        h,
+        String::from("test_add_task_to_subsystems_no_match_v1"),
+        Some(vec![String::from("memory")]),
+    )
+    .unwrap();
+    {
+        let err = cg
+            .add_task_by_tgid_to_subsystems(CgroupPid::from(1), &[Controllers::Cpu])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SpecifiedControllers);
+
+        let err = cg
+            .add_task_to_subsystems(CgroupPid::from(1), &[Controllers::Cpu])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SpecifiedControllers);
+
+        // A partial mismatch (e.g. Mem exists, but Cpu does not) must also fail.
+        let err = cg
+            .add_task_to_subsystems(CgroupPid::from(1), &[Controllers::Mem, Controllers::Cpu])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SpecifiedControllers);
+
+        let err = cg
+            .add_task_to_subsystems(CgroupPid::from(1), &[Controllers::Mem, Controllers::Cpu])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::SpecifiedControllers);
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_to_subsystems_v2_unsupported() {
+    if !cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let cg = Cgroup::new(
+        h,
+        String::from("test_add_task_to_subsystems_v2_unsupported"),
+    )
+    .unwrap();
+    {
+        let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
+        // On cgroup v2 a subsystem subset is meaningless; the unified
+        // hierarchy must be rejected rather than silently attaching.
+        let err = cg
+            .add_task_to_subsystems(CgroupPid::from(pid), &[Controllers::Mem])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::CgroupVersion);
+
+        let err = cg
+            .add_task_by_tgid_to_subsystems(CgroupPid::from(pid), &[Controllers::Mem])
+            .unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::CgroupVersion);
+    }
+    cg.delete().unwrap();
+}
+
+#[test]
+fn test_add_task_to_subsystems_dedup_v1() {
+    if cgroups_rs::fs::hierarchies::is_cgroup2_unified_mode() {
+        return;
+    }
+    let h = cgroups_rs::fs::hierarchies::auto();
+    let pid = libc::pid_t::from(nix::unistd::getpid()) as u64;
+    let cg = Cgroup::new(h, String::from("test_add_task_to_subsystems_dedup_v1")).unwrap();
+    {
+        // A repeated request for the same controller must be deduped: it must
+        // not error (a length-based check would misfire) and must attach
+        // exactly once to the memory subsystem.
+        cg.add_task_to_subsystems(CgroupPid::from(pid), &[Controllers::Mem, Controllers::Mem])
+            .unwrap();
+        for sub in cg.subsystems() {
+            let tasks = sub.to_controller().tasks();
+            match sub {
+                Subsystem::Mem(_) => assert!(
+                    tasks.contains(&CgroupPid::from(pid)),
+                    "tid not in memory subsystem after deduped attach"
+                ),
+                _ => assert!(
+                    !tasks.contains(&CgroupPid::from(pid)),
+                    "tid unexpectedly attached to a non-memory subsystem"
+                ),
+            }
+        }
+        cg.remove_task(CgroupPid::from(pid)).unwrap();
+
+        // Same contract for the tgid variant.
+        cg.add_task_by_tgid_to_subsystems(
+            CgroupPid::from(pid),
+            &[Controllers::Mem, Controllers::Mem],
+        )
+        .unwrap();
+        for sub in cg.subsystems() {
+            let procs = sub.to_controller().procs();
+            match sub {
+                Subsystem::Mem(_) => assert!(
+                    procs.contains(&CgroupPid::from(pid)),
+                    "pid not in memory subsystem after deduped attach"
+                ),
+                _ => assert!(
+                    !procs.contains(&CgroupPid::from(pid)),
+                    "pid unexpectedly attached to a non-memory subsystem"
+                ),
+            }
+        }
+        cg.remove_task_by_tgid(CgroupPid::from(pid)).unwrap();
+    }
     cg.delete().unwrap();
 }

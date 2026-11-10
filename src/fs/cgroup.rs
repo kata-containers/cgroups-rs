@@ -10,7 +10,9 @@ use crate::fs::error::ErrorKind::*;
 use crate::fs::error::*;
 
 use crate::fs::hierarchies::V1;
-use crate::fs::{CgroupPid, ControllIdentifier, Controller, Hierarchy, Resources, Subsystem};
+use crate::fs::{
+    CgroupPid, ControllIdentifier, Controller, Controllers, Hierarchy, Resources, Subsystem,
+};
 
 use std::collections::HashMap;
 use std::convert::From;
@@ -396,6 +398,66 @@ impl Cgroup {
                 .iter()
                 .try_for_each(|sub| sub.to_controller().add_task_by_tgid(&tgid))
         }
+    }
+
+    /// Attach a task to a subset of subsystems in the control group.
+    ///
+    /// This is only supported on cgroup v1 where controllers reside in independent hierarchies.
+    pub fn add_task_to_subsystems(&self, tid: CgroupPid, subsystems: &[Controllers]) -> Result<()> {
+        if self.v2() {
+            return Err(Error::new(CgroupVersion));
+        }
+        if subsystems.is_empty() {
+            return Err(Error::new(SubsystemsEmpty));
+        }
+        let targets: Vec<&Subsystem> = self
+            .subsystems()
+            .iter()
+            .filter(|s| subsystems.contains(&s.to_controller().control_type()))
+            .collect();
+        for requested in subsystems {
+            if !targets
+                .iter()
+                .any(|s| s.to_controller().control_type() == *requested)
+            {
+                return Err(Error::new(SpecifiedControllers));
+            }
+        }
+        targets
+            .iter()
+            .try_for_each(|sub| sub.to_controller().add_task(&tid))
+    }
+
+    /// Attach tasks to a subset of subsystems in the control group by thread group id.
+    ///
+    /// This is only supported on cgroup v1 where controllers reside in independent hierarchies.
+    pub fn add_task_by_tgid_to_subsystems(
+        &self,
+        tgid: CgroupPid,
+        subsystems: &[Controllers],
+    ) -> Result<()> {
+        if self.v2() {
+            return Err(Error::new(CgroupVersion));
+        }
+        if subsystems.is_empty() {
+            return Err(Error::new(SubsystemsEmpty));
+        }
+        let targets: Vec<&Subsystem> = self
+            .subsystems()
+            .iter()
+            .filter(|s| subsystems.contains(&s.to_controller().control_type()))
+            .collect();
+        for requested in subsystems {
+            if !targets
+                .iter()
+                .any(|s| s.to_controller().control_type() == *requested)
+            {
+                return Err(Error::new(SpecifiedControllers));
+            }
+        }
+        targets
+            .iter()
+            .try_for_each(|sub| sub.to_controller().add_task_by_tgid(&tgid))
     }
 
     /// set cgroup.type
