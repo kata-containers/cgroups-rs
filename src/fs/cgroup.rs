@@ -7,7 +7,7 @@
 //! This module handles cgroup operations. Start here!
 
 use crate::fs::error::ErrorKind::*;
-use crate::fs::error::*;
+use crate::fs::{error::*, Controllers};
 
 use crate::fs::hierarchies::V1;
 use crate::fs::{CgroupPid, ControllIdentifier, Controller, Hierarchy, Resources, Subsystem};
@@ -512,18 +512,82 @@ pub const UNIFIED_MOUNTPOINT: &str = "/sys/fs/cgroup";
 fn enable_controllers(controllers: &[String], path: &Path) {
     let f = path.join("cgroup.subtree_control");
     for c in controllers {
+        // The freezer cannot be enabled through cgroup.subtree_control:
+        // it is a core v2 feature and not a controller.
+        if c == &Controllers::Freezer.to_string() {
+            continue;
+        }
         let body = format!("+{}", c);
-        let _rest = fs::write(f.as_path(), body.as_bytes());
+        let _ = fs::write(f.as_path(), body.as_bytes());
     }
 }
 
-fn supported_controllers() -> Vec<String> {
-    let p = format!("{}/{}", UNIFIED_MOUNTPOINT, "cgroup.controllers");
-    let ret = fs::read_to_string(p.as_str());
-    ret.unwrap_or_default()
+/// The controllers reported by the unified hierarchy.
+fn supported_controllers(root: &Path) -> Result<Vec<String>> {
+    let path = root.join("cgroup.controllers");
+    let ret = fs::read_to_string(&path)
+        .map_err(|e| Error::with_cause(ErrorKind::ReadFailed(path.display().to_string()), e))?;
+    Ok(ret
         .split(' ')
         .map(|x| x.trim().to_string())
-        .collect::<Vec<String>>()
+        .filter(|x| !x.is_empty())
+        .collect())
+}
+
+/// Checks static v2 controller availability, excluding the freezer core
+/// feature which is verified after creating the requested cgroup.
+fn specified_controllers_supported(
+    specified_controllers: &[String],
+    supported_controllers: &[String],
+) -> bool {
+    specified_controllers
+        .iter()
+        .filter(|controller| controller.as_str() != Controllers::Freezer.to_string())
+        .all(|controller| supported_controllers.contains(controller))
+}
+
+fn verify_specified_controllers(specified_controllers: &[String], root: &Path) -> bool {
+    let supported = supported_controllers(root).unwrap_or_default();
+    specified_controllers_supported(specified_controllers, &supported)
+}
+
+fn path_is_file(path: &Path) -> Result<bool> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::NotADirectory =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(Error::with_cause(
+            ErrorKind::ReadFailed(path.display().to_string()),
+            e,
+        )),
+    }
+}
+
+/// Creates `path` unless it already names a directory.
+///
+/// Returns whether this call created the directory.
+fn create_dir_if_missing(path: &Path) -> Result<bool> {
+    match fs::create_dir(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = fs::metadata(path).map_err(|metadata_error| {
+                Error::with_cause(
+                    ErrorKind::ReadFailed(path.display().to_string()),
+                    metadata_error,
+                )
+            })?;
+            if metadata.is_dir() {
+                Ok(false)
+            } else {
+                Err(Error::with_cause(ErrorKind::FsError, e))
+            }
+        }
+        Err(e) => Err(Error::with_cause(ErrorKind::FsError, e)),
+    }
 }
 
 fn create_v2_cgroup(
@@ -533,22 +597,57 @@ fn create_v2_cgroup(
 ) -> Result<()> {
     // controler list ["memory", "cpu"]
     let controllers = if let Some(s_controllers) = specified_controllers.clone() {
-        if verify_supported_controllers(s_controllers.as_ref()) {
+        if verify_specified_controllers(s_controllers.as_ref(), &root) {
             s_controllers
         } else {
             return Err(Error::new(ErrorKind::SpecifiedControllers));
         }
     } else {
-        supported_controllers()
+        supported_controllers(&root).unwrap_or_default()
     };
 
-    let mut fp = root;
-
-    // enable for root
-    enable_controllers(&controllers, &fp);
+    let freezer_check_required = specified_controllers
+        .as_ref()
+        .is_some_and(|cs| cs.iter().any(|c| c == &Controllers::Freezer.to_string()));
 
     // path: "a/b/c"
     let elements = path.split('/').collect::<Vec<&str>>();
+
+    if freezer_check_required {
+        let first = elements
+            .iter()
+            .copied()
+            .find(|element| !element.is_empty())
+            .ok_or_else(|| Error::new(ErrorKind::SpecifiedControllers))?;
+        let probe_path = root.join(first);
+        let probe_created = create_dir_if_missing(&probe_path)?;
+
+        let freezer_available = path_is_file(&probe_path.join("cgroup.freeze"));
+        match freezer_available {
+            Ok(true) => {}
+            Ok(false) => {
+                if probe_created {
+                    fs::remove_dir(&probe_path)
+                        .map_err(|e| Error::with_cause(ErrorKind::RemoveFailed, e))?;
+                }
+                return Err(Error::new(ErrorKind::SpecifiedControllers));
+            }
+            Err(e) => {
+                if probe_created {
+                    fs::remove_dir(&probe_path).map_err(|remove_error| {
+                        Error::with_cause(ErrorKind::RemoveFailed, remove_error)
+                    })?;
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    let mut fp = root;
+
+    // Enable controllers only after the freezer probe succeeds.
+    enable_controllers(&controllers, &fp);
+
     let last_index = elements.len() - 1;
     // Build up the directory hierarchy element by element, enabling the controllers for all
     // parents along the way.
@@ -569,14 +668,13 @@ fn create_v2_cgroup(
     Ok(())
 }
 
+/// Checks whether every non-freezer controller is reported by cgroup v2.
+///
+/// The freezer is a cgroup v2 core feature rather than a value reported by
+/// `cgroup.controllers`. Its availability is checked when the requested
+/// cgroup is created.
 pub fn verify_supported_controllers(controllers: &[String]) -> bool {
-    let sc = supported_controllers();
-    for controller in controllers.iter() {
-        if !sc.contains(controller) {
-            return false;
-        }
-    }
-    true
+    verify_specified_controllers(controllers, Path::new(UNIFIED_MOUNTPOINT))
 }
 
 pub fn get_cgroups_relative_paths() -> Result<HashMap<String, String>> {
@@ -633,4 +731,93 @@ fn get_cgroups_relative_paths_by_path(path: String) -> Result<HashMap<String, St
         }
     }
     Ok(m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "cgroups-rs-cgroup-test-{}-{}",
+            name,
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn freezer_only() -> Option<Vec<String>> {
+        Some(vec![Controllers::Freezer.to_string()])
+    }
+
+    #[test]
+    fn test_supported_controllers_reads_the_given_root() {
+        let root = temp_dir("controller-list");
+        std::fs::write(root.join("cgroup.controllers"), "cpu memory\n").unwrap();
+
+        assert_eq!(
+            supported_controllers(&root).unwrap(),
+            vec!["cpu".to_string(), "memory".to_string()]
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_specified_controllers_excludes_freezer_from_static_check() {
+        let freezer = Controllers::Freezer.to_string();
+        let cpu = "cpu".to_string();
+        let supported = vec![cpu.clone()];
+
+        assert!(specified_controllers_supported(
+            std::slice::from_ref(&freezer),
+            &[]
+        ));
+        assert!(specified_controllers_supported(
+            &[freezer.clone(), cpu.clone()],
+            &supported
+        ));
+        assert!(!specified_controllers_supported(&[freezer, cpu], &[]));
+    }
+
+    #[test]
+    fn test_v2_freezer_probe_cleans_up_created_cgroup() {
+        let root = temp_dir("freezer-probe-cleanup");
+        let error = create_v2_cgroup(root.clone(), "probe/leaf", &freezer_only()).unwrap_err();
+
+        assert_eq!(error.kind(), &ErrorKind::SpecifiedControllers);
+        assert!(!root.join("probe").exists());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_v2_freezer_probe_preserves_existing_cgroup() {
+        let root = temp_dir("freezer-probe-existing");
+        let probe = root.join("probe");
+        std::fs::create_dir(&probe).unwrap();
+
+        let error = create_v2_cgroup(root.clone(), "probe/leaf", &freezer_only()).unwrap_err();
+
+        assert_eq!(error.kind(), &ErrorKind::SpecifiedControllers);
+        assert!(probe.exists());
+        assert!(!probe.join("leaf").exists());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_v2_freezer_probe_accepts_cgroup_with_freezer_file() {
+        let root = temp_dir("freezer-probe-supported");
+        let probe = root.join("probe");
+        std::fs::create_dir(&probe).unwrap();
+        std::fs::write(probe.join("cgroup.freeze"), "0\n").unwrap();
+
+        create_v2_cgroup(root.clone(), "probe/leaf", &freezer_only()).unwrap();
+
+        assert!(probe.join("leaf").is_dir());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
