@@ -279,13 +279,23 @@ impl CpuSetController {
                     .unwrap_or_default()
             },
             effective_cpus: {
-                self.open_path("cpuset.effective_cpus", false)
+                let file = if self.v2 {
+                    "cpuset.cpus.effective"
+                } else {
+                    "cpuset.effective_cpus"
+                };
+                self.open_path(file, false)
                     .and_then(read_string_from)
                     .and_then(parse_range)
                     .unwrap_or_default()
             },
             effective_mems: {
-                self.open_path("cpuset.effective_mems", false)
+                let file = if self.v2 {
+                    "cpuset.mems.effective"
+                } else {
+                    "cpuset.effective_mems"
+                };
+                self.open_path(file, false)
                     .and_then(read_string_from)
                     .and_then(parse_range)
                     .unwrap_or_default()
