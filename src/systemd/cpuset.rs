@@ -68,10 +68,8 @@ fn convert_list_to_mask(list: &str) -> Result<Vec<u8>> {
         }
     }
 
-    let mut mask = bit_vec.to_bytes();
-    mask.reverse();
-
-    Ok(mask)
+    // systemd expects the byte for IDs 0-7 first, followed by 8-15, and so on.
+    Ok(bit_vec.to_bytes())
 }
 
 #[cfg(test)]
@@ -87,10 +85,16 @@ mod tests {
         assert_eq!(vec![0b10000010_u8], mask);
 
         let mask = convert_list_to_mask("0-4,9").unwrap();
-        assert_eq!(vec![0b00000010_u8, 0b00011111_u8], mask);
+        assert_eq!(vec![0b00011111_u8, 0b00000010_u8], mask);
 
         assert!(convert_list_to_mask("1-3-4").is_err());
 
         assert!(convert_list_to_mask("1-3,,").is_err());
+    }
+
+    #[test]
+    fn test_convert_list_to_mask_0_to_27() {
+        let mask = convert_list_to_mask("0-27").unwrap();
+        assert_eq!(vec![0xff, 0xff, 0xff, 0x0f], mask);
     }
 }
