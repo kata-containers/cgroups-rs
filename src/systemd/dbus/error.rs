@@ -31,6 +31,9 @@ pub enum Error {
     #[error("systemd unit {unit} is inactive but can't be reused: {holders}")]
     UnitHeld { unit: String, holders: String },
 
+    #[error("systemd unit {unit} can't stop before units that are stopping: {units}")]
+    UnitStopBlocked { unit: String, units: String },
+
     #[error("systemd unit signal stream closed")]
     UnitSignalStreamClosed,
 
